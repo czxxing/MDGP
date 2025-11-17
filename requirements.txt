@@ -1,0 +1,9 @@
+streamlit
+pydantic
+lance
+pandas
+daft
+pillow
+matplotlib
+numpy
+pyarrow
