@@ -1,6 +1,5 @@
 import os
 import daft
-import lance
 import pandas as pd
 from typing import List, Dict, Any, Optional
 
@@ -40,8 +39,14 @@ class LanceManager:
                 "type": [f["type"] for f in files_info]
             })
             
+            # 根据文件是否存在选择写入模式
+            if os.path.exists(self.lance_file):
+                mode = "append"
+            else:
+                mode = "overwrite"
+            
             # 写入Lance文件
-            df.write_lance(self.lance_file, mode="append")
+            df.write_lance(self.lance_file, mode=mode)
             return True
             
         except Exception as e:
