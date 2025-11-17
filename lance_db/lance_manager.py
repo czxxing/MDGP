@@ -1,5 +1,5 @@
 import os
-import pyarrow as pa
+import daft
 import lance
 import pandas as pd
 from typing import List, Dict, Any, Optional
@@ -30,20 +30,18 @@ class LanceManager:
             保存是否成功
         """
         try:
-            # 创建PyArrow表
-            data = {
+            # 创建Daft DataFrame
+            df = daft.from_pydict({
                 "filename": [f["filename"] for f in files_info],
                 "path": [f["path"] for f in files_info],
                 "size": [f["size"] for f in files_info],
                 "created_time": [f["created_time"] for f in files_info],
                 "modified_time": [f["modified_time"] for f in files_info],
                 "type": [f["type"] for f in files_info]
-            }
-            
-            table = pa.Table.from_pydict(data)
+            })
             
             # 写入Lance文件
-            lance.write_table(table, self.lance_file, mode="append")
+            df.write_lance(self.lance_file, mode="append")
             return True
             
         except Exception as e:
@@ -58,8 +56,9 @@ class LanceManager:
         """
         try:
             if os.path.exists(self.lance_file):
-                table = lance.dataset(self.lance_file)
-                return table.to_pandas()
+                # 使用Daft读取Lance文件并转换为Pandas DataFrame
+                df = daft.read_lance(self.lance_file)
+                return df.to_pandas()
             return None
         except Exception as e:
             print(f"从Lance加载数据失败: {str(e)}")
