@@ -5,6 +5,10 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from typing import Dict, Any
 
+# 设置matplotlib支持中文显示
+plt.rcParams['font.family'] = ['Noto Sans CJK JP', 'sans-serif']  # 使用系统中可用的Noto字体
+plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+
 
 class StatisticsPage:
     """数据统计页面类"""
