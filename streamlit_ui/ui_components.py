@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
 def setup_page():
@@ -21,15 +21,52 @@ def init_session_state():
         st.session_state.current_dataframe = None
     if 'files_info' not in st.session_state:
         st.session_state.files_info = []
+    if 'active_tabs' not in st.session_state:
+        st.session_state.active_tabs = ["数据目录", "数据处理", "数据统计"]
+    if 'selected_tab' not in st.session_state:
+        st.session_state.selected_tab = "数据目录"
 
 
-def display_directory_tab(data_dir: str, db_info: Dict[str, Any]):
-    """显示数据目录选项卡
-    
-    Args:
-        data_dir: 数据目录路径
-        db_info: 数据库信息
-    """
+def create_header():
+    """创建头部区域"""
+    with st.container():
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.title("多模态数据管理平台")
+        with col2:
+            st.write("📊 高效管理和处理多模态数据")
+    st.divider()
+
+
+def create_sidebar(lance_manager):
+    """创建左侧导航栏"""
+    with st.sidebar:
+        st.header("导航菜单")
+        
+        # 导航选项
+        if st.button("📂 数据目录", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据目录" else "secondary"):
+            st.session_state.selected_tab = "数据目录"
+            st.rerun()
+            
+        if st.button("⚙️ 数据处理", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据处理" else "secondary"):
+            st.session_state.selected_tab = "数据处理"
+            st.rerun()
+            
+        if st.button("📈 数据统计", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据统计" else "secondary"):
+            st.session_state.selected_tab = "数据统计"
+            st.rerun()
+        
+        st.divider()
+        
+        # 数据库信息显示
+        st.subheader("数据库信息")
+        db_info = lance_manager.get_database_info()
+        st.write(f"文件数量: {len(db_info['files'])}")
+        st.write(f"数据库路径: {lance_manager.lance_file}")
+
+
+def display_directory_content(data_dir: str, db_info: Dict[str, Any]):
+    """显示数据目录内容"""
     st.header("数据目录结构")
     
     # 显示目录结构
@@ -55,12 +92,8 @@ def display_directory_tab(data_dir: str, db_info: Dict[str, Any]):
             st.info("数据库目录为空")
 
 
-def display_processing_tab(lance_manager):
-    """显示数据处理选项卡
-    
-    Args:
-        lance_manager: Lance管理器实例
-    """
+def display_processing_content(lance_manager):
+    """显示数据处理内容"""
     st.header("数据处理")
     
     col1, col2 = st.columns(2)
@@ -108,11 +141,7 @@ def display_processing_tab(lance_manager):
 
 
 def plot_stats(stats: Dict[str, Any]):
-    """绘制统计图表
-    
-    Args:
-        stats: 统计信息字典
-    """
+    """绘制统计图表"""
     # 创建两列布局
     col1, col2 = st.columns(2)
     
@@ -138,8 +167,8 @@ def plot_stats(stats: Dict[str, Any]):
         st.pyplot(fig)
 
 
-def display_statistics_tab():
-    """显示数据统计选项卡"""
+def display_statistics_content():
+    """显示数据统计内容"""
     st.header("数据统计")
     
     if st.button("生成统计信息"):
@@ -169,6 +198,22 @@ def display_statistics_tab():
             st.warning("请先加载数据")
 
 
+def create_tabs_interface(data_dir: str, db_dir: str, lance_manager):
+    """创建原生tabs界面"""
+    # 创建tabs组件
+    tab1, tab2, tab3 = st.tabs(["📂 数据目录", "⚙️ 数据处理", "📈 数据统计"])
+    
+    with tab1:
+        db_info = lance_manager.get_database_info()
+        display_directory_content(data_dir, db_info)
+    
+    with tab2:
+        display_processing_content(lance_manager)
+    
+    with tab3:
+        display_statistics_content()
+
+
 def create_main_ui(data_dir: str, db_dir: str):
     """创建主界面
     
@@ -176,23 +221,19 @@ def create_main_ui(data_dir: str, db_dir: str):
         data_dir: 数据目录路径
         db_dir: 数据库目录路径
     """
-    st.title("多模态数据管理平台")
-    
     # 初始化Lance管理器
     from lance_db.lance_manager import LanceManager
     lance_manager = LanceManager(db_dir)
     
-    # 获取数据库信息
-    db_info = lance_manager.get_database_info()
+    # 创建头部
+    create_header()
     
-    # 创建导航选项卡
-    tab1, tab2, tab3 = st.tabs(["数据目录", "数据处理", "数据统计"])
+    # 创建左侧导航栏
+    create_sidebar(lance_manager)
     
-    with tab1:
-        display_directory_tab(data_dir, db_info)
-    
-    with tab2:
-        display_processing_tab(lance_manager)
-    
-    with tab3:
-        display_statistics_tab()
+    # 创建原生tabs界面
+    create_tabs_interface(data_dir, db_dir, lance_manager)
+
+
+# 兼容旧的API调用
+create_main_ui_old = create_main_ui
