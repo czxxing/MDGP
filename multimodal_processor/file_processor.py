@@ -1,6 +1,11 @@
+"""
+文件处理工具模块
+提供文件类型判断、目录扫描和统计功能的工具函数
+"""
+
 import os
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # 支持的文件类型
 IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff']
@@ -29,6 +34,27 @@ def get_file_type(filename: str) -> str:
         return "text"
     else:
         return "other"
+
+
+def create_file_processor(processor_type: str, **kwargs):
+    """
+    创建文件处理器实例的工厂函数
+    
+    Args:
+        processor_type: 处理器类型 ('local' 或 's3')
+        **kwargs: 处理器特定的参数
+        
+    Returns:
+        文件处理器实例
+    """
+    if processor_type == 'local':
+        from .local_file_processor import LocalFileProcessor
+        return LocalFileProcessor()
+    elif processor_type == 's3':
+        from .s3_file_processor import S3FileProcessor
+        return S3FileProcessor(**kwargs)
+    else:
+        raise ValueError(f"不支持的处理器类型: {processor_type}")
 
 
 def scan_directory(directory: str) -> List[Dict[str, Any]]:
@@ -63,6 +89,20 @@ def scan_directory(directory: str) -> List[Dict[str, Any]]:
     return files_info
 
 
+def get_file_extensions() -> Dict[str, List[str]]:
+    """获取所有支持的文件扩展名
+    
+    Returns:
+        文件扩展名字典
+    """
+    return {
+        "image": IMAGE_EXTENSIONS,
+        "video": VIDEO_EXTENSIONS,
+        "audio": AUDIO_EXTENSIONS,
+        "text": TEXT_EXTENSIONS
+    }
+
+
 def generate_stats(files_info: List[Dict[str, Any]]) -> Dict[str, Any]:
     """生成文件统计信息
     
@@ -89,17 +129,3 @@ def generate_stats(files_info: List[Dict[str, Any]]) -> Dict[str, Any]:
     stats["size_by_type"] = df.groupby("type")["size"].sum().to_dict()
     
     return stats
-
-
-def get_file_extensions() -> Dict[str, List[str]]:
-    """获取支持的文件扩展名
-    
-    Returns:
-        文件扩展名字典
-    """
-    return {
-        "image": IMAGE_EXTENSIONS,
-        "video": VIDEO_EXTENSIONS,
-        "audio": AUDIO_EXTENSIONS,
-        "text": TEXT_EXTENSIONS
-    }
