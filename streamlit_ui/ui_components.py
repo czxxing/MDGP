@@ -136,8 +136,7 @@ def display_tab_content(tab_name: str, data_dir: str, db_dir: str, lance_manager
             page = HomePage()
             page.display()
         elif tab_name == "数据目录":
-            db_info = lance_manager.get_database_info()
-            page = DirectoryPage(data_dir, db_info)
+            page = DirectoryPage(lance_manager)
             page.display()
         elif tab_name == "数据处理":
             page = ProcessingPage(lance_manager)
