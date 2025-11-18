@@ -24,6 +24,9 @@ class DirectoryPage:
         """显示数据目录内容"""
         st.header("数据目录")
         
+        # 显示当前数据预览（移到最上面）
+        self._display_current_data_preview()
+        
         # 文件路径扫描功能
         self._display_file_scan_section()
         
@@ -37,8 +40,9 @@ class DirectoryPage:
                         success = self.lance_manager.save_to_lance(st.session_state.scanned_files)
                         if success:
                             st.success("数据导入成功")
-                            # 加载数据到会话状态
+                            # 重新加载数据到会话状态
                             st.session_state.current_dataframe = self.lance_manager.load_from_lance()
+                            st.rerun()  # 重新渲染页面以显示新数据
                 else:
                     st.warning("请先扫描文件路径")
         
@@ -58,17 +62,6 @@ class DirectoryPage:
                             st.error(f"导出失败: {str(e)}")
                 else:
                     st.warning("请先导入数据")
-        
-        # 显示当前数据
-        st.subheader("当前数据预览")
-        if st.button("加载并显示数据"):
-            with st.spinner("正在加载数据..."):
-                df = self.lance_manager.load_from_lance()
-                if df is not None:
-                    st.session_state.current_dataframe = df
-                    st.dataframe(df.head(10))
-                else:
-                    st.info("数据库中没有数据")
     
     def _display_file_scan_section(self):
         """显示文件路径扫描区域"""
@@ -101,8 +94,8 @@ class DirectoryPage:
         # 路径输入
         path_input = st.text_input(
             "本地目录路径:",
-            value=st.session_state.scan_path,
-            placeholder="/path/to/your/directory",
+            value=st.session_state.scan_path if st.session_state.scan_path else "./data",
+            placeholder="./data",
             key="local_path"
         )
         
@@ -225,6 +218,106 @@ class DirectoryPage:
             
             if len(files) > 20:
                 st.info(f"还有 {len(files) - 20} 个文件未显示...")
+    
+    def _display_current_data_preview(self):
+        """显示当前数据预览（带分页功能）"""
+        st.subheader("当前数据预览")
+        
+        # 初始化分页状态
+        if 'current_page' not in st.session_state:
+            st.session_state.current_page = 1
+        if 'page_size' not in st.session_state:
+            st.session_state.page_size = 10
+        
+        # 自动加载数据库数据
+        with st.spinner("正在加载数据..."):
+            df = self.lance_manager.load_from_lance()
+            
+            if df is not None and not df.empty:
+                st.session_state.current_dataframe = df
+                
+                # 显示数据统计信息
+                total_records = len(df)
+                st.write(f"数据库中共有 **{total_records}** 条记录")
+                
+                # 分页控件
+                col1, col2, col3 = st.columns([1, 2, 1])
+                
+                with col1:
+                    page_size = st.selectbox(
+                        "每页显示数量:",
+                        [5, 10, 20, 50],
+                        index=1,  # 默认选择10
+                        key="page_size_selector"
+                    )
+                    if page_size != st.session_state.page_size:
+                        st.session_state.page_size = page_size
+                        st.session_state.current_page = 1
+                        st.rerun()
+                
+                with col2:
+                    total_pages = max(1, (total_records + page_size - 1) // page_size)
+                    
+                    # 分页导航
+                    page_cols = st.columns(min(7, total_pages) + 2)
+                    
+                    with page_cols[0]:
+                        if st.button("◀", disabled=st.session_state.current_page <= 1):
+                            st.session_state.current_page -= 1
+                            st.rerun()
+                    
+                    # 显示页码按钮
+                    start_page = max(1, st.session_state.current_page - 3)
+                    end_page = min(total_pages, start_page + 6)
+                    
+                    for i, col in enumerate(page_cols[1:-1], start=start_page):
+                        if i <= end_page:
+                            with col:
+                                if st.button(str(i), 
+                                          type="primary" if i == st.session_state.current_page else "secondary",
+                                          use_container_width=True):
+                                    st.session_state.current_page = i
+                                    st.rerun()
+                    
+                    with page_cols[-1]:
+                        if st.button("▶", disabled=st.session_state.current_page >= total_pages):
+                            st.session_state.current_page += 1
+                            st.rerun()
+                
+                with col3:
+                    st.write(f"第 {st.session_state.current_page} / {total_pages} 页")
+                
+                # 显示当前页数据
+                start_idx = (st.session_state.current_page - 1) * page_size
+                end_idx = min(start_idx + page_size, total_records)
+                
+                st.write(f"显示第 {start_idx + 1} - {end_idx} 条记录")
+                
+                # 显示数据表格
+                current_page_data = df.iloc[start_idx:end_idx]
+                st.dataframe(current_page_data, use_container_width=True)
+                
+                # 显示数据统计
+                st.write("**数据统计:**")
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                
+                with col_stat1:
+                    st.metric("总记录数", total_records)
+                
+                with col_stat2:
+                    if 'type' in df.columns:
+                        type_counts = df['type'].value_counts()
+                        st.write("数据类型分布:")
+                        for file_type, count in type_counts.items():
+                            st.write(f"- {file_type}: {count}")
+                
+                with col_stat3:
+                    if 'size' in df.columns:
+                        total_size_mb = df['size'].sum() / (1024 * 1024)
+                        st.metric("总数据大小", f"{total_size_mb:.2f} MB")
+                
+            else:
+                st.info("数据库中没有数据，请先扫描并导入数据")
     
     def get_title(self) -> str:
         """获取页面标题"""
