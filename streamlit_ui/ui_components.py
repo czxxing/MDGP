@@ -22,10 +22,6 @@ def init_session_state():
         st.session_state.current_dataframe = None
     if 'files_info' not in st.session_state:
         st.session_state.files_info = []
-    if 'selected_tab' not in st.session_state:
-        st.session_state.selected_tab = "首页"  # 默认显示首页
-    if 'active_tabs' not in st.session_state:
-        st.session_state.active_tabs = ["首页"]  # 默认激活首页
 
 def create_header():
     """创建占据整个头部的页面区域"""
@@ -159,37 +155,18 @@ def create_main_ui(data_dir: str, db_dir: str):
     # 创建全宽头部 - 确保在最上方
     create_header()
     
-    # 创建左侧导航栏（使用Streamlit原生侧边栏）
-    create_sidebar(lance_manager)
+    # 直接显示所有tab页，不使用侧边栏导航
+    # 定义所有tab页的标签
+    tab_labels = ["🏠 首页", "📂 数据目录", "⚙️ 数据处理", "📈 数据统计"]
+    tab_names = ["首页", "数据目录", "数据处理", "数据统计"]
     
-    # 使用Streamlit原生tabs组件，但只显示激活的tab
-    if st.session_state.active_tabs:
-        # 为每个tab添加图标
-        tab_labels = []
-        for tab_name in st.session_state.active_tabs:
-            if tab_name == "首页":
-                tab_labels.append("🏠 首页")
-            elif tab_name == "数据目录":
-                tab_labels.append("📂 数据目录")
-            elif tab_name == "数据处理":
-                tab_labels.append("⚙️ 数据处理")
-            elif tab_name == "数据统计":
-                tab_labels.append("📈 数据统计")
-            else:
-                tab_labels.append(tab_name)
-        
-        # 创建tab组件，只显示激活的tab
-        tabs = st.tabs(tab_labels)
-        
-        # 在每个激活的tab中显示对应内容
-        for i, tab_name in enumerate(st.session_state.active_tabs):
-            with tabs[i]:
-                display_tab_content(tab_name, data_dir, db_dir, lance_manager)
-    else:
-        # 如果没有激活的tab，显示首页
-        st.session_state.active_tabs = ["首页"]
-        st.session_state.selected_tab = "首页"
-        st.rerun()
+    # 创建tab组件，显示所有tab页
+    tabs = st.tabs(tab_labels)
+    
+    # 在每个tab中显示对应内容
+    for i, tab_name in enumerate(tab_names):
+        with tabs[i]:
+            display_tab_content(tab_name, data_dir, db_dir, lance_manager)
 
 # 兼容旧的API调用
 create_main_ui_old = create_main_ui
