@@ -44,9 +44,24 @@ MDGP/
 
 ## 使用方法
 
-1. 安装依赖：
+### 环境准备
+
+项目使用 `uv` 作为包管理工具，确保已安装 uv：
+
 ```bash
-pip install -r requirements.txt
+pip install uv
+```
+
+### 安装依赖
+
+1. 使用 uv 创建虚拟环境并安装依赖：
+```bash
+uv venv .venv
+source .venv/bin/activate  # Linux/MacOS
+# 或 .venv\Scripts\activate  # Windows
+
+# 安装项目依赖
+uv pip install -e .
 ```
 
 2. 将多模态文件放入 `data/` 目录
@@ -54,6 +69,13 @@ pip install -r requirements.txt
 3. 运行应用：
 ```bash
 streamlit run app.py
+```
+
+### 使用项目命令
+
+项目配置了快捷命令，可以直接运行：
+```bash
+mdgp
 ```
 
 ## 功能特性
@@ -66,6 +88,8 @@ streamlit run app.py
 
 ## 技术栈
 
+- **包管理**：uv (快速Python包管理器)
+- **构建系统**：setuptools (Python包构建)
 - **前端框架**：Streamlit
 - **数据处理**：Pandas, Daft
 - **数据库**：Lance, PyArrow
