@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lance_db", "multimodal_processor", "streamlit_ui"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[project]
+name = "MDGP"
+description = "Multimodal Data Processing and Management Tool"
+version = "0.1.0"
+authors = [
+  { name = "Your Name", email = "your.email@example.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "streamlit==1.51.0",
+    "pydantic==2.12.4",
+    "lance==1.2.1",
+    "lancedb==0.25.3",
+    "pandas==2.3.3",
+    "daft==0.6.13",
+    "pillow==12.0.0",
+    "matplotlib==3.10.7",
+    "numpy==2.3.5",
+    "pyarrow==21.0.0",
+    "boto3==1.35.0",
+    "streamlit-option-menu==0.4.0",
+    "streamlit-lottie==0.0.5",
+    "streamlit-tags==1.2.8",
+    "streamlit-aggrid==1.2.0.post1",
+]
+
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+extra-index-url = [
+    "https://pypi.org/simple",
+]
+
+[tool.uv.sources]
+pypi = { url = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+
+[project.scripts]
+mdgp = "app:main"
