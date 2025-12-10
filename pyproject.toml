@@ -40,6 +40,12 @@ dependencies = [
     "streamlit-lottie==0.0.5",
     "streamlit-tags==1.2.8",
     "streamlit-aggrid==1.2.0.post1",
+    "seaborn==0.13.2",
+    "nemo-curator",
+    "langdetect",
+    "fasttext",
+    "sentencepiece",
+    "transformers",
 ]
 
 [tool.uv]

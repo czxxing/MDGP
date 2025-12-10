@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from typing import Dict, Any, List
 
 # 导入页面模块
-from streamlit_ui.pages import DirectoryPage, ProcessingPage, StatisticsPage, HomePage
+from streamlit_ui.pages import DirectoryPage, ProcessingPage, StatisticsPage, HomePage, DataProcessingPage
 
 def setup_page():
     """设置页面配置"""
@@ -95,6 +95,9 @@ def create_sidebar(lance_manager):
         if st.button("📂 数据目录", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据目录" else "secondary"):
             open_tab("数据目录")
             
+        if st.button("🔍 数据搜索", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据搜索" else "secondary"):
+            open_tab("数据搜索")
+            
         if st.button("⚙️ 数据处理", use_container_width=True, type="primary" if st.session_state.selected_tab == "数据处理" else "secondary"):
             open_tab("数据处理")
             
@@ -134,8 +137,11 @@ def display_tab_content(tab_name: str, data_dir: str, db_dir: str, lance_manager
         elif tab_name == "数据目录":
             page = DirectoryPage(lance_manager)
             page.display()
-        elif tab_name == "数据处理":
+        elif tab_name == "数据搜索":
             page = ProcessingPage(lance_manager)
+            page.display()
+        elif tab_name == "数据处理":
+            page = DataProcessingPage(lance_manager)
             page.display()
         elif tab_name == "数据统计":
             page = StatisticsPage()
@@ -157,8 +163,8 @@ def create_main_ui(data_dir: str, db_dir: str):
     
     # 直接显示所有tab页，不使用侧边栏导航
     # 定义所有tab页的标签
-    tab_labels = ["🏠 首页", "📂 数据目录", "⚙️ 数据处理", "📈 数据统计"]
-    tab_names = ["首页", "数据目录", "数据处理", "数据统计"]
+    tab_labels = ["🏠 首页", "📂 数据目录", "🔍 数据搜索", "⚙️ 数据处理", "📈 数据统计"]
+    tab_names = ["首页", "数据目录", "数据搜索", "数据处理", "数据统计"]
     
     # 创建tab组件，显示所有tab页
     tabs = st.tabs(tab_labels)
