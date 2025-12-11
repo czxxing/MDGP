@@ -11,7 +11,7 @@ def setup_page():
     st.set_page_config(
         page_title="多模态数据管理平台",
         page_icon="📊",
-        layout="wide"
+        layout="centered"
     )
 
 def init_session_state():
