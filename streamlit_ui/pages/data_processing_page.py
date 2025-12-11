@@ -68,9 +68,6 @@ class DataProcessingPage:
         """显示数据处理内容"""
         st.header("📊 数据处理与质量评估")
         
-        # 显示数据加载区域
-        self._display_data_loading_section()
-        
         # 如果数据已加载，显示数据预览和质量评估按钮
         if st.session_state.current_dataframe is not None and not st.session_state.current_dataframe.empty:
             self._display_data_preview()
@@ -84,7 +81,7 @@ class DataProcessingPage:
             
             # 移除原始的_display_results调用，因为我们已经在按钮点击后直接调用了
         else:
-            st.info("👆 请先加载数据以开始数据处理")
+            st.info("📋 数据已自动加载，可开始数据处理")
     
     def _display_data_loading_section(self):
         """显示数据加载区域"""
@@ -248,9 +245,7 @@ class DataProcessingPage:
                 st.pyplot(fig)
     
     def _display_nemo_curator_analysis(self):
-        """显示NeMo Curator分析选项"""
-        st.write("**🔬 NeMo Curator高级分析**")
-        
+
         # 分析选项
         analysis_options = st.multiselect(
             "选择分析类型:",
