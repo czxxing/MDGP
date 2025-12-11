@@ -127,14 +127,19 @@ class DataProcessingPage:
         
         df = st.session_state.current_dataframe
         
-        # 显示基本信息
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("记录数", len(df))
-        with col2:
-            st.metric("列数", len(df.columns))
-        with col3:
-            st.metric("数据类型", f"{len(df.select_dtypes(include=['object']).columns)}文本列")
+        # 使用居中布局
+        # 创建一个居中的列容器
+        center_col = st.columns([1, 3, 1])[1]
+        
+        with center_col:
+            # 显示基本信息
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("记录数", len(df))
+            with col2:
+                st.metric("列数", len(df.columns))
+            with col3:
+                st.metric("数据类型", f"{len(df.select_dtypes(include=['object']).columns)}文本列")
         
         # 显示前几行数据
         with st.expander("查看数据详情"):
