@@ -600,9 +600,6 @@ class DataProcessingPage:
             with col1:
                 if st.button("💾 导出处理结果"):
                     self._export_data()
-            with col2:
-                if st.button("🔄 保存到数据库"):
-                    self._save_to_database()
         
         # 显示处理日志
         self._display_processing_logs()
@@ -619,17 +616,6 @@ class DataProcessingPage:
                 mime="text/csv"
             )
             self._add_log("数据导出", "CSV文件已准备下载")
-    
-    def _save_to_database(self):
-        """保存到数据库"""
-        if st.session_state.filtered_data is not None:
-            try:
-                self.lance_manager.save_to_lance(st.session_state.filtered_data)
-                st.success("✅ 数据已成功保存到数据库")
-                self._add_log("数据保存", "处理后的数据已保存到数据库")
-            except Exception as e:
-                st.error(f"❌ 保存失败: {str(e)}")
-                self._add_log("数据保存", f"保存失败: {str(e)}", "ERROR")
     
     def _display_processing_logs(self):
         """显示处理日志"""
