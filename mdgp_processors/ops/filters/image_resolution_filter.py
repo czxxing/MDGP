@@ -2,7 +2,7 @@
 图像分辨率过滤算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class ImageResolutionFilter(Operator):
     """图像分辨率过滤算子"""

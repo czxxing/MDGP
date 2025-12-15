@@ -2,7 +2,7 @@
 文本去重算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class TextDeduper(Operator):
     """文本去重算子"""

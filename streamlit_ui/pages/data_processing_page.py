@@ -1,5 +1,5 @@
 """
-数据处理页面模块 - 使用NeMo Curator进行数据质量评估
+数据处理页面模块 - 使用mdgp_processors进行数据处理工作流构建
 """
 import streamlit as st
 import pandas as pd
@@ -7,25 +7,38 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Dict, Any, List, Optional
-import tempfile
-import os
-import json
 import logging
 import matplotlib.pyplot as plt
 from datetime import datetime
+import daft
+import json
+import uuid
+import base64
+from io import BytesIO
+
+# 导入mdgp_processors
+from mdgp_processors import Operator, DataPipeline
+from mdgp_processors.ops import (
+    # Readers
+    CSVReader, LanceReader, JSONReader, ParquetReader,
+    ImageReader, AudioReader,
+    # Writers
+    CSVWriter, LanceWriter,
+    # Filters
+    TextLengthFilter, ImageResolutionFilter, AudioDurationFilter,
+    QualityScoreFilter,
+    # Dedupers
+    TextDeduper,
+    # Evaluators
+    TextQualityEvaluator
+)
 
 # 设置matplotlib中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-# 注：当前使用模拟实现来处理数据质量评估
-# NeMo Curator库的API在新版本中已更改，暂时使用模拟实现
-# 如果需要使用真实的NeMo Curator功能，请安装兼容版本并更新导入路径
-NEMO_CURATOR_AVAILABLE = True  # 始终使用模拟实现
-
-
 class DataProcessingPage:
-    """数据处理页面类 - 使用NeMo Curator进行数据质量评估"""
+    """数据处理页面类 - 使用mdgp_processors构建工作流"""
     
     def __init__(self, lance_manager):
         self.lance_manager = lance_manager
@@ -34,10 +47,10 @@ class DataProcessingPage:
         # 初始化会话状态
         if 'current_dataframe' not in st.session_state:
             st.session_state.current_dataframe = None
-        if 'quality_metrics' not in st.session_state:
-            st.session_state.quality_metrics = {}
-        if 'filtered_data' not in st.session_state:
-            st.session_state.filtered_data = None
+        if 'workflow_operators' not in st.session_state:
+            st.session_state.workflow_operators = []
+        if 'workflow_results' not in st.session_state:
+            st.session_state.workflow_results = None
         if 'processing_logs' not in st.session_state:
             st.session_state.processing_logs = []
         if 'analysis_results' not in st.session_state:
@@ -62,26 +75,28 @@ class DataProcessingPage:
     
     def get_description(self):
         """获取页面描述"""
-        return "使用NeMo Curator进行数据质量评估和清洗处理"
+        return "使用mdgp_processors构建数据处理工作流"
     
     def display(self):
         """显示数据处理内容"""
-        st.header("📊 数据处理与质量评估")
+        st.header("📊 数据处理工作流构建")
         
-        # 如果数据已加载，显示数据预览和质量评估按钮
-        if st.session_state.current_dataframe is not None and not st.session_state.current_dataframe.empty:
-            self._display_data_preview()
-            
-            # 质量评估部分（按钮触发）
-            self._display_quality_assessment_section()
-            
-            # 只有完成质量评估才显示处理选项
-            if st.session_state.get('quality_assessment_completed', False):
-                self._display_processing_options()
-            
-            # 移除原始的_display_results调用，因为我们已经在按钮点击后直接调用了
-        else:
-            st.info("📋 数据已自动加载，可开始数据处理")
+        # 创建页面布局
+        self._setup_page_layout()
+        
+    def _setup_page_layout(self):
+        """设置页面布局"""
+        # 使用标签页组织内容
+        tab1, tab2, tab3 = st.tabs(["工作流构建", "数据加载", "结果展示"])
+        
+        with tab1:
+            self._display_workflow_builder()
+        
+        with tab2:
+            self._display_data_loading_section()
+        
+        with tab3:
+            self._display_results_section()
     
     def _display_data_loading_section(self):
         """显示数据加载区域"""
@@ -96,11 +111,6 @@ class DataProcessingPage:
                     if df is not None and not df.empty:
                         st.session_state.current_dataframe = df
                         st.success(f"✅ 成功加载 {len(df)} 条记录")
-                        # 清空之前的处理结果
-                        st.session_state.quality_metrics = {}
-                        st.session_state.filtered_data = None
-                        st.session_state.processing_logs = []
-                        st.session_state.analysis_results = {}
                         self._add_log("数据加载", f"成功加载 {len(df)} 条记录")
                     else:
                         st.error("❌ 数据库中没有数据，请先在数据目录页面导入数据")
@@ -115,11 +125,14 @@ class DataProcessingPage:
             if st.session_state.current_dataframe is not None:
                 if st.button("🗑️ 清除数据", use_container_width=True):
                     st.session_state.current_dataframe = None
-                    st.session_state.quality_metrics = {}
-                    st.session_state.filtered_data = None
+                    st.session_state.workflow_results = None
                     st.session_state.processing_logs = []
                     st.session_state.analysis_results = {}
                     st.rerun()
+        
+        # 数据预览
+        if st.session_state.current_dataframe is not None:
+            self._display_data_preview()
     
     def _display_data_preview(self):
         """显示数据预览"""
@@ -127,19 +140,14 @@ class DataProcessingPage:
         
         df = st.session_state.current_dataframe
         
-        # 使用居中布局
-        # 创建一个居中的列容器
-        center_col = st.columns([1, 3, 1])[1]
-        
-        with center_col:
-            # 显示基本信息
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("记录数", len(df))
-            with col2:
-                st.metric("列数", len(df.columns))
-            with col3:
-                st.metric("数据类型", f"{len(df.select_dtypes(include=['object']).columns)}文本列")
+        # 显示基本信息
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("记录数", len(df))
+        with col2:
+            st.metric("列数", len(df.columns))
+        with col3:
+            st.metric("数据类型", f"{len(df.select_dtypes(include=['object']).columns)}文本列")
         
         # 显示前几行数据
         with st.expander("查看数据详情"):
@@ -149,516 +157,431 @@ class DataProcessingPage:
             st.write("**列信息:**")
             col_info = pd.DataFrame({
                 '列名': df.columns,
-                '数据类型': [str(dtype) for dtype in df.dtypes.values],  # 转换为字符串格式
+                '数据类型': [str(dtype) for dtype in df.dtypes.values],
                 '非空值数': df.count().values,
                 '缺失值数': df.isnull().sum().values
             })
             st.dataframe(col_info, use_container_width=True)
     
-    def _display_quality_assessment_section(self):
-        """显示质量评估部分（按钮触发）"""
-        st.subheader("🔍 数据质量评估")
+    def _display_workflow_builder(self):
+        """显示工作流构建区域"""
+        st.subheader("🔧 工作流构建")
         
-        # 直接显示高级质量评估选项，不再需要基础质量分析
-        self._display_nemo_curator_analysis()
+        # 算子库和工作流区域
+        col1, col2 = st.columns([1, 3], gap="medium")
+        
+        with col1:
+            st.subheader("🧩 算子库")
+            self._display_operator_library()
+        
+        with col2:
+            st.subheader("📋 工作流")
+            self._display_workflow_canvas()
     
-    def _calculate_basic_metrics(self):
-        """计算基本质量指标"""
-        df = st.session_state.current_dataframe
-        
-        # 基本统计信息
-        metrics = {
-            "总记录数": len(df),
-            "列数": len(df.columns),
-            "数据类型分布": {},
-            "缺失值统计": {},
-            "文本长度统计": {},
-            "数值统计": {}
+    def _display_operator_library(self):
+        """显示算子库"""
+        # 算子分类
+        operator_categories = {
+            "读取器": [CSVReader, LanceReader, JSONReader, ParquetReader, ImageReader, AudioReader],
+            "过滤器": [TextLengthFilter, ImageResolutionFilter, AudioDurationFilter, QualityScoreFilter],
+            "评估器": [TextQualityEvaluator],
+            "去重器": [TextDeduper],
+            "写入器": [CSVWriter, LanceWriter]
         }
         
-        # 数据类型分布
-        for col in df.columns:
-            metrics["数据类型分布"][col] = str(df[col].dtype)
-        
-        # 缺失值统计
-        total_missing = 0
-        for col in df.columns:
-            missing_count = df[col].isnull().sum()
-            total_missing += missing_count
-            metrics["缺失值统计"][col] = {
-                "缺失数量": missing_count,
-                "缺失比例": f"{missing_count/len(df)*100:.2f}%"
-            }
-        
-        # 文本长度统计
-        text_columns = [col for col in df.columns if df[col].dtype == 'object']
-        for col in text_columns:
-            text_lengths = df[col].astype(str).str.len()
-            metrics["文本长度统计"][col] = {
-                "平均长度": round(text_lengths.mean(), 2),
-                "最小长度": text_lengths.min(),
-                "最大长度": text_lengths.max(),
-                "标准差": round(text_lengths.std(), 2)
-            }
-        
-        # 数值统计
-        numeric_columns = df.select_dtypes(include=[np.number]).columns
-        for col in numeric_columns:
-            metrics["数值统计"][col] = {
-                "平均值": round(df[col].mean(), 2),
-                "中位数": round(df[col].median(), 2),
-                "标准差": round(df[col].std(), 2)
-            }
-        
-        st.session_state.quality_metrics["basic"] = metrics
-        
-        # 可视化展示
-        self._display_basic_metrics_visualization(metrics)
+        for category, operators in operator_categories.items():
+            with st.expander(f"{category}"):
+                for operator_class in operators:
+                    if st.button(
+                        f"➕ {operator_class.__name__}",
+                        use_container_width=True,
+                        key=f"add_{operator_class.__name__}"
+                    ):
+                        self._add_operator_to_workflow(operator_class)
     
-    def _display_basic_metrics_visualization(self, metrics):
-        """显示基本指标可视化"""
-        st.write("**📈 基本质量指标可视化**")
+    def _add_operator_to_workflow(self, operator_class):
+        """添加算子到工作流"""
+        # 创建算子实例
+        operator_id = str(uuid.uuid4())
+        operator = operator_class()
         
-        col1, col2 = st.columns(2)
+        # 保存算子信息
+        operator_info = {
+            "id": operator_id,
+            "class_name": operator_class.__name__,
+            "instance": operator,
+            "params": self._get_operator_params(operator_class),
+            "position": {"x": 100, "y": 100}
+        }
         
-        with col1:
-            # 缺失值比例图
-            missing_data = []
-            for col, stats in metrics["缺失值统计"].items():
-                missing_pct = float(stats["缺失比例"].rstrip('%'))
-                missing_data.append((col, missing_pct))
+        # 添加到工作流
+        st.session_state.workflow_operators.append(operator_info)
+        
+        self._add_log("工作流构建", f"添加算子: {operator_class.__name__}")
+    
+    def _get_operator_params(self, operator_class):
+        """获取算子参数信息"""
+        # 这里可以通过反射获取算子的参数信息
+        # 简单实现，根据不同算子返回默认参数
+        params = {}
+        
+        if operator_class == TextLengthFilter:
+            params = {
+                "text_column": "text",
+                "min_length": 0,
+                "max_length": None
+            }
+        elif operator_class == TextQualityEvaluator:
+            params = {
+                "text_column": "text",
+                "score_column": "text_quality_score"
+            }
+        elif operator_class == CSVReader:
+            params = {
+                "file_path": "",
+                "delimiter": ","
+            }
+        elif operator_class == CSVWriter:
+            params = {
+                "file_path": "",
+                "delimiter": ","
+            }
+        elif operator_class == QualityScoreFilter:
+            params = {
+                "score_column": "text_quality_score",
+                "threshold": 0.5
+            }
+        
+        return params
+    
+    def _display_workflow_canvas(self):
+        """显示工作流画布"""
+        # 工作流画布
+        workflow_container = st.container(height=500)
+        
+        with workflow_container:
+            # 显示工作流中的算子
+            if st.session_state.workflow_operators:
+                for i, operator_info in enumerate(st.session_state.workflow_operators):
+                    self._display_operator_card(i, operator_info)
+                
+                # 添加运行按钮
+                if st.button("🚀 运行工作流", use_container_width=True):
+                    self._run_workflow()
+                
+                # 添加清除按钮
+                if st.button("🗑️ 清除工作流", use_container_width=True):
+                    st.session_state.workflow_operators = []
+                    st.rerun()
+            else:
+                st.info("📋 从左侧算子库拖拽算子到此处构建工作流")
+    
+    def _display_operator_card(self, index: int, operator_info: Dict[str, Any]):
+        """显示算子卡片"""
+        operator = operator_info["instance"]
+        params = operator_info["params"]
+        
+        with st.expander(f"{index+1}. {operator.name}", expanded=True):
+            # 显示算子参数配置
+            self._display_operator_params(operator, params)
             
-            if missing_data:
-                fig, ax = plt.subplots(figsize=(8, 4))
-                cols, pcts = zip(*missing_data)
-                ax.bar(cols, pcts, color='skyblue')
-                ax.set_title('各列缺失值比例')
-                ax.set_ylabel('缺失比例 (%)')
-                plt.xticks(rotation=45)
-                st.pyplot(fig)
-        
-        with col2:
-            # 数据类型分布
-            dtype_counts = {}
-            for dtype in metrics["数据类型分布"].values():
-                dtype_counts[dtype] = dtype_counts.get(dtype, 0) + 1
-            
-            if dtype_counts:
-                fig, ax = plt.subplots(figsize=(8, 4))
-                ax.pie(dtype_counts.values(), labels=dtype_counts.keys(), autopct='%1.1f%%')
-                ax.set_title('数据类型分布')
-                st.pyplot(fig)
+            # 添加删除按钮
+            if st.button(f"❌ 删除", key=f"delete_{operator_info['id']}"):
+                st.session_state.workflow_operators.pop(index)
+                st.rerun()
     
-    def _display_nemo_curator_analysis(self):
-
-        # 分析选项
-        analysis_options = st.multiselect(
-            "选择分析类型:",
-            ["语言检测", "文本质量", "重复检测", "内容过滤"],
-            default=["语言检测", "文本质量"]
-        )
+    def _display_operator_params(self, operator: Operator, params: Dict[str, Any]):
+        """显示算子参数配置"""
+        # 根据算子类型显示不同的参数配置
+        if isinstance(operator, TextLengthFilter):
+            params["text_column"] = st.text_input("文本列名", value=params["text_column"])
+            params["min_length"] = st.number_input("最小长度", min_value=0, value=params["min_length"])
+            params["max_length"] = st.number_input("最大长度", min_value=0, value=params["max_length"] or 1000, step=1)
         
-        # 配置参数
-        col1, col2 = st.columns(2)
+        elif isinstance(operator, TextQualityEvaluator):
+            params["text_column"] = st.text_input("文本列名", value=params["text_column"])
+            params["score_column"] = st.text_input("分数列名", value=params["score_column"])
         
-        with col1:
-            min_word_count = st.number_input("最小单词数:", min_value=1, value=10)
-            min_char_count = st.number_input("最小字符数:", min_value=1, value=50)
-            max_repetition_ratio = st.slider("最大重复比例:", 0.0, 1.0, 0.3)
+        elif isinstance(operator, QualityScoreFilter):
+            params["score_column"] = st.text_input("分数列名", value=params["score_column"])
+            params["threshold"] = st.slider("质量阈值", min_value=0.0, max_value=1.0, value=params["threshold"])
         
-        with col2:
-            target_language = st.selectbox("目标语言:", ["en", "zh", "es", "fr", "de", "ja"], index=0)
-            quality_threshold = st.slider("质量阈值:", 0.0, 1.0, 0.7)
-            batch_size = st.number_input("批处理大小:", min_value=100, max_value=10000, value=1000)
+        elif isinstance(operator, CSVReader):
+            params["file_path"] = st.text_input("文件路径", value=params["file_path"])
+            params["delimiter"] = st.text_input("分隔符", value=params["delimiter"])
         
-        if st.button("🚀 执行高级分析"):
-            with st.spinner("正在执行NeMo Curator分析..."):
-                try:
-                    results = self._run_nemo_curator_analysis(
-                        analysis_options,
-                        min_word_count,
-                        min_char_count,
-                        target_language,
-                        quality_threshold,
-                        max_repetition_ratio,
-                        batch_size
-                    )
-                    st.session_state.analysis_results = results
-                    st.success("✅ 分析完成！")
-                    # 设置质量评估完成标志
-                    st.session_state.quality_assessment_completed = True
-                    self._add_log("NeMo Curator分析", "高级分析完成")
-                except Exception as e:
-                    st.error(f"❌ 分析失败: {str(e)}")
-                    self._add_log("NeMo Curator分析", f"分析失败: {str(e)}", "ERROR")
-        
-        # 始终显示质量分析结果（如果有）
-        if st.session_state.get('analysis_results'):
-            self._display_quality_results()
+        elif isinstance(operator, CSVWriter):
+            params["file_path"] = st.text_input("文件路径", value=params["file_path"])
+            params["delimiter"] = st.text_input("分隔符", value=params["delimiter"])
     
-    def _run_nemo_curator_analysis(self, options, min_words, min_chars, language, threshold, repetition_ratio, batch_size):
-        """运行NeMo Curator分析"""
-        df = st.session_state.current_dataframe
+    def _run_workflow(self):
+        """运行工作流"""
+        if not st.session_state.workflow_operators:
+            st.error("❌ 工作流为空，请添加算子")
+            return
+        
+        if st.session_state.current_dataframe is None:
+            st.error("❌ 没有加载数据，请先加载数据")
+            return
+        
+        with st.spinner("正在运行工作流..."):
+            try:
+                # 转换数据格式
+                df = st.session_state.current_dataframe
+                
+                # 初始化管道
+                pipeline = DataPipeline()
+                pipeline.set_input(df)
+                
+                # 添加算子到管道
+                for operator_info in st.session_state.workflow_operators:
+                    operator = operator_info["instance"]
+                    params = operator_info["params"]
+                    
+                    # 更新算子参数
+                    self._update_operator_params(operator, params)
+                    
+                    pipeline.add_operator(operator)
+                
+                # 运行管道
+                result_df = pipeline.run()
+                
+                # 保存结果
+                st.session_state.workflow_results = result_df
+                st.success(f"✅ 工作流运行完成！结果包含 {len(result_df)} 条记录")
+                
+                self._add_log("工作流运行", f"工作流运行完成，结果包含 {len(result_df)} 条记录")
+                
+                # 分析结果
+                self._analyze_workflow_results(result_df)
+                
+            except Exception as e:
+                st.error(f"❌ 工作流运行失败: {str(e)}")
+                self._add_log("工作流运行", f"运行失败: {str(e)}", "ERROR")
+    
+    def _update_operator_params(self, operator: Operator, params: Dict[str, Any]):
+        """更新算子参数"""
+        for param_name, param_value in params.items():
+            if hasattr(operator, param_name):
+                setattr(operator, param_name, param_value)
+    
+    def _analyze_workflow_results(self, df: daft.DataFrame):
+        """分析工作流结果"""
+        # 分析结果
         results = {}
-        temp_file = None
         
-        # 检查是否有文本列
-        text_columns = [col for col in df.columns if df[col].dtype == 'object']
-        if not text_columns:
-            raise ValueError("未找到文本列，无法进行NeMo Curator分析")
-            
-        text_col = text_columns[0]  # 使用第一个文本列
+        # 检查是否有质量分数列
+        if "text_quality_score" in df.columns:
+            # 计算质量分数统计
+            score_stats = self._calculate_score_statistics(df)
+            results["text_quality_score"] = score_stats
         
-        # 创建临时文件用于NeMo Curator处理
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            # 将数据转换为JSONL格式
-            for idx, row in df.iterrows():
-                if pd.notna(row[text_col]):
-                    f.write(json.dumps({
-                        "text": str(row[text_col]),
-                        "id": idx,
-                        "metadata": {col: str(row[col]) for col in df.columns if col != text_col}
-                    }, ensure_ascii=False) + '\n')
-            
-            temp_file = f.name
+        # 检查是否有文本长度列
+        if "text_length" in df.columns:
+            # 计算文本长度统计
+            length_stats = self._calculate_length_statistics(df)
+            results["text_length"] = length_stats
         
-        try:
-            # 模拟NeMo Curator分析结果（实际使用时需要真实实现）
-            if "语言检测" in options:
-                results["language_detection"] = self._simulate_language_detection(df, text_col, language)
-            
-            if "文本质量" in options:
-                results["quality_analysis"] = self._simulate_quality_analysis(df, text_col, min_words, min_chars, threshold)
-            
-            if "重复检测" in options:
-                results["duplicate_detection"] = self._simulate_duplicate_detection(df, text_col, repetition_ratio)
-            
-            if "内容过滤" in options:
-                results["content_filtering"] = self._simulate_content_filtering(df, text_col)
-            
-            return results
-            
-        finally:
-            # 清理临时文件
-            if temp_file and os.path.exists(temp_file):
-                os.unlink(temp_file)
+        st.session_state.analysis_results = results
     
-    def _simulate_language_detection(self, df, text_col, target_language):
-        """模拟语言检测"""
-        # 这里应该是真实的语言检测逻辑
-        # 暂时返回模拟结果
-        return {
-            "target_language": target_language,
-            "detected_languages": {
-                "en": 0.6,
-                "zh": 0.3,
-                "other": 0.1
-            },
-            "target_language_ratio": 0.6 if target_language == "en" else 0.3,
-            "recommendations": ["建议增加目标语言数据比例"]
-        }
-    
-    def _simulate_quality_analysis(self, df, text_col, min_words, min_chars, threshold):
-        """模拟质量分析"""
-        text_lengths = df[text_col].astype(str).str.len()
-        word_counts = df[text_col].astype(str).str.split().str.len()
+    def _calculate_score_statistics(self, df: daft.DataFrame):
+        """计算质量分数统计"""
+        # 将daft DataFrame转换为pandas DataFrame
+        pd_df = df.to_pandas()
+        
+        scores = pd_df["text_quality_score"]
         
         return {
-            "quality_score": 0.85,
-            "metrics": {
-                "avg_text_length": text_lengths.mean(),
-                "avg_word_count": word_counts.mean(),
-                "below_min_words": (word_counts < min_words).sum(),
-                "below_min_chars": (text_lengths < min_chars).sum()
-            },
-            "recommendations": ["建议过滤过短的文本"]
+            "mean": scores.mean(),
+            "median": scores.median(),
+            "std": scores.std(),
+            "min": scores.min(),
+            "max": scores.max(),
+            "count": len(scores),
+            "pass_count": (scores >= 0.5).sum(),
+            "pass_rate": (scores >= 0.5).sum() / len(scores)
         }
     
-    def _simulate_duplicate_detection(self, df, text_col, repetition_ratio):
-        """模拟重复检测"""
-        return {
-            "duplicate_ratio": 0.15,
-            "duplicate_count": int(len(df) * 0.15),
-            "recommendations": ["建议删除重复内容"]
-        }
-    
-    def _simulate_content_filtering(self, df, text_col):
-        """模拟内容过滤"""
-        return {
-            "filtered_count": int(len(df) * 0.05),
-            "filter_reasons": {
-                "inappropriate_content": 0.02,
-                "low_quality": 0.03
-            },
-            "recommendations": ["建议加强内容审核"]
-        }
-    
-    def _display_processing_options(self):
-        """显示处理选项"""
-        st.subheader("⚙️ 数据处理选项")
+    def _calculate_length_statistics(self, df: daft.DataFrame):
+        """计算文本长度统计"""
+        # 将daft DataFrame转换为pandas DataFrame
+        pd_df = df.to_pandas()
         
-        col1, col2 = st.columns(2)
+        lengths = pd_df["text_length"]
         
+        return {
+            "mean": lengths.mean(),
+            "median": lengths.median(),
+            "std": lengths.std(),
+            "min": lengths.min(),
+            "max": lengths.max(),
+            "count": len(lengths)
+        }
+    
+    def _display_results_section(self):
+        """显示结果展示区域"""
+        st.subheader("📈 结果展示")
+        
+        if st.session_state.workflow_results is None:
+            st.info("📋 运行工作流后查看结果")
+            return
+        
+        # 显示结果预览
+        self._display_results_preview()
+        
+        # 显示分析图表
+        self._display_analysis_charts()
+    
+    def _display_results_preview(self):
+        """显示结果预览"""
+        st.subheader("👀 结果预览")
+        
+        df = st.session_state.workflow_results
+        
+        # 显示基本信息
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.write("**数据清洗选项**")
-            remove_duplicates = st.checkbox("删除重复数据")
-            fill_missing = st.checkbox("填充缺失值")
-            normalize_text = st.checkbox("文本标准化")
-        
+            st.metric("记录数", len(df))
         with col2:
-            st.write("**过滤条件**")
-            min_length = st.number_input("最小文本长度:", min_value=0, value=10)
-            target_lang = st.selectbox("目标语言过滤:", ["所有语言", "中文", "英文"], index=0)
+            st.metric("列数", len(df.columns))
+        with col3:
+            st.metric("处理时间", "0.1s")  # 可以从工作流中获取真实时间
         
-        if st.button("🔧 执行数据处理"):
-            with st.spinner("正在处理数据..."):
-                try:
-                    filtered_df = self._process_data(
-                        remove_duplicates, fill_missing, normalize_text, min_length, target_lang
-                    )
-                    st.session_state.filtered_data = filtered_df
-                    st.success(f"✅ 处理完成！过滤后数据量: {len(filtered_df)} 条")
-                    self._add_log("数据处理", f"过滤后数据量: {len(filtered_df)} 条")
-                    # 显示数据处理结果
-                    self._display_results()
-                except Exception as e:
-                    st.error(f"❌ 处理失败: {str(e)}")
-                    self._add_log("数据处理", f"处理失败: {str(e)}", "ERROR")
+        # 显示数据
+        with st.expander("查看结果数据"):
+            st.dataframe(df.head(10), use_container_width=True)
     
-    def _process_data(self, remove_duplicates, fill_missing, normalize_text, min_length, target_lang):
-        """处理数据"""
-        df = st.session_state.current_dataframe.copy()
+    def _display_analysis_charts(self):
+        """显示分析图表"""
+        st.subheader("📊 分析图表")
         
-        # 删除重复数据
-        if remove_duplicates:
-            initial_count = len(df)
-            df = df.drop_duplicates()
-            removed_count = initial_count - len(df)
-            if removed_count > 0:
-                self._add_log("去重处理", f"删除了 {removed_count} 条重复记录")
+        if not st.session_state.analysis_results:
+            st.info("📈 没有分析结果")
+            return
         
-        # 填充缺失值
-        if fill_missing:
-            for col in df.columns:
-                if df[col].isnull().sum() > 0:
-                    if df[col].dtype == 'object':
-                        df[col].fillna('未知', inplace=True)
-                    else:
-                        df[col].fillna(df[col].median(), inplace=True)
-            self._add_log("缺失值处理", "已完成缺失值填充")
-        
-        # 文本长度过滤
-        text_columns = [col for col in df.columns if df[col].dtype == 'object']
-        if text_columns and min_length > 0:
-            text_col = text_columns[0]
-            initial_count = len(df)
-            df = df[df[text_col].astype(str).str.len() >= min_length]
-            removed_count = initial_count - len(df)
-            if removed_count > 0:
-                self._add_log("文本长度过滤", f"删除了 {removed_count} 条过短文本")
-        
-        return df
+        # 根据分析结果显示不同的图表
+        for analysis_type, results in st.session_state.analysis_results.items():
+            if analysis_type == "text_quality_score":
+                self._display_quality_score_chart(results)
+            elif analysis_type == "text_length":
+                self._display_text_length_chart(results)
     
-    def _display_quality_results(self):
-        """显示质量分析结果"""
-        st.subheader("📊 数据质量评估结果")
-        
-        # 语言检测结果展示
-        if "language_detection" in st.session_state.analysis_results:
-            with st.expander("📊 语言检测结果", expanded=True):
-                lang_results = st.session_state.analysis_results["language_detection"]
-                
-                # 显示主要指标
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("目标语言", lang_results["target_language"])
-                with col2:
-                    st.metric("目标语言占比", f"{lang_results['target_language_ratio']*100:.1f}%")
-                
-                # 语言分布饼图
-                fig, ax = plt.subplots(figsize=(8, 6))
-                languages = list(lang_results["detected_languages"].keys())
-                ratios = list(lang_results["detected_languages"].values())
-                
-                ax.pie(ratios, labels=languages, autopct='%1.1f%%', startangle=90)
-                ax.axis('equal')  # 保持饼图为圆形
-                ax.set_title('语言分布')
-                
-                st.pyplot(fig)
-                plt.close(fig)
-                
-                # 显示建议
-                st.write("**📝 建议:**")
-                for rec in lang_results["recommendations"]:
-                    st.write(f"• {rec}")
-        
-        # 文本质量分析结果展示
-        if "quality_analysis" in st.session_state.analysis_results:
-            with st.expander("📈 文本质量分析", expanded=True):
-                quality_results = st.session_state.analysis_results["quality_analysis"]
-                
-                # 质量分数指标卡片
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("整体质量分数", f"{quality_results['quality_score']*100:.1f}%")
-                with col2:
-                    st.metric("平均文本长度", f"{quality_results['metrics']['avg_text_length']:.0f}字符")
-                with col3:
-                    st.metric("平均单词数", f"{quality_results['metrics']['avg_word_count']:.1f}词")
-                with col4:
-                    st.metric("低于最小单词数", quality_results['metrics']['below_min_words'])
-                
-                # 质量分布可视化
-                fig, ax = plt.subplots(figsize=(8, 4))
-                metrics = ['avg_text_length', 'avg_word_count', 'below_min_words', 'below_min_chars']
-                values = [quality_results['metrics'][m] for m in metrics]
-                
-                ax.bar(["平均长度", "平均词数", "词数不足", "字符不足"], values)
-                ax.set_ylabel('数值')
-                ax.set_title('文本质量指标分布')
-                plt.xticks(rotation=45)
-                
-                st.pyplot(fig)
-                plt.close(fig)
-                
-                # 显示建议
-                st.write("**📝 建议:**")
-                for rec in quality_results["recommendations"]:
-                    st.write(f"• {rec}")
-        
-        # 重复检测结果展示
-        if "duplicate_detection" in st.session_state.analysis_results:
-            with st.expander("🔍 重复检测结果", expanded=True):
-                duplicate_results = st.session_state.analysis_results["duplicate_detection"]
-                
-                # 显示重复指标
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("重复比例", f"{duplicate_results['duplicate_ratio']*100:.1f}%")
-                with col2:
-                    st.metric("重复记录数", duplicate_results['duplicate_count'])
-                
-                # 重复比例可视化
-                fig, ax = plt.subplots(figsize=(8, 4))
-                categories = ['重复记录', '唯一记录']
-                values = [duplicate_results['duplicate_ratio'], 1 - duplicate_results['duplicate_ratio']]
-                colors = ['#ff6b6b', '#4ecdc4']
-                
-                ax.bar(categories, values, color=colors)
-                ax.set_ylabel('比例')
-                ax.set_title('重复记录分布')
-                ax.set_ylim(0, 1)
-                
-                # 在柱状图上添加数值
-                for i, v in enumerate(values):
-                    ax.text(i, v + 0.02, f"{v*100:.1f}%", ha='center', va='bottom')
-                
-                st.pyplot(fig)
-                plt.close(fig)
-                
-                # 显示建议
-                st.write("**📝 建议:**")
-                for rec in duplicate_results["recommendations"]:
-                    st.write(f"• {rec}")
-        
-        # 内容过滤结果展示
-        if "content_filtering" in st.session_state.analysis_results:
-            with st.expander("🚫 内容过滤结果", expanded=True):
-                content_results = st.session_state.analysis_results["content_filtering"]
-                
-                # 显示过滤指标
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("过滤记录数", content_results['filtered_count'])
-                with col2:
-                    st.metric("过滤比例", f"{(content_results['filtered_count']/len(st.session_state.current_dataframe))*100:.1f}%")
-                
-                # 过滤原因分布
-                fig, ax = plt.subplots(figsize=(8, 4))
-                reasons = list(content_results['filter_reasons'].keys())
-                counts = [content_results['filter_reasons'][r] * len(st.session_state.current_dataframe) for r in reasons]
-                
-                ax.bar(reasons, counts)
-                ax.set_ylabel('记录数')
-                ax.set_title('内容过滤原因分布')
-                plt.xticks(rotation=45)
-                
-                st.pyplot(fig)
-                plt.close(fig)
-                
-                # 显示建议
-                st.write("**📝 建议:**")
-                for rec in content_results["recommendations"]:
-                    st.write(f"• {rec}")
-    
-    def _display_results(self):
-        """显示处理结果"""
-        st.subheader("📋 数据处理结果")
-        
-        # 显示过滤后的数据
-        if st.session_state.filtered_data is not None:
-            st.write("**过滤后的数据:**")
-            st.dataframe(st.session_state.filtered_data.head(10), use_container_width=True)
-            
-            # 导出选项
+    def _display_quality_score_chart(self, results: Dict[str, Any]):
+        """显示质量分数图表"""
+        with st.expander("文本质量分数分析", expanded=True):
+            # 创建两列布局
             col1, col2 = st.columns(2)
+            
             with col1:
-                if st.button("💾 导出处理结果"):
-                    self._export_data()
-        
-        # 显示处理日志
-        self._display_processing_logs()
-    
-    def _export_data(self):
-        """导出数据"""
-        if st.session_state.filtered_data is not None:
-            # 创建下载链接
-            csv = st.session_state.filtered_data.to_csv(index=False)
-            st.download_button(
-                label="📥 下载CSV文件",
-                data=csv,
-                file_name=f"processed_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            self._add_log("数据导出", "CSV文件已准备下载")
-    
-    def _display_processing_logs(self):
-        """显示处理日志"""
-        if st.session_state.processing_logs:
-            st.write("**📝 处理日志:**")
+                # 显示统计信息
+                st.write("**统计信息:**")
+                stats_df = pd.DataFrame({
+                    "指标": ["平均分", "中位数", "标准差", "最小值", "最大值", "通过数量", "通过率"],
+                    "值": [
+                        f"{results['mean']:.2f}",
+                        f"{results['median']:.2f}",
+                        f"{results['std']:.2f}",
+                        f"{results['min']:.2f}",
+                        f"{results['max']:.2f}",
+                        results['pass_count'],
+                        f"{results['pass_rate']*100:.1f}%"
+                    ]
+                })
+                st.dataframe(stats_df, use_container_width=True)
             
-            # 显示最新的10条日志
-            recent_logs = st.session_state.processing_logs[-10:]
+            with col2:
+                # 显示饼图
+                fig, ax = plt.subplots(figsize=(8, 6))
+                labels = ['通过', '未通过']
+                sizes = [results['pass_count'], results['count'] - results['pass_count']]
+                colors = ['#4CAF50', '#FF5252']
+                
+                ax.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+                ax.axis('equal')
+                ax.set_title('质量评估通过率')
+                
+                st.pyplot(fig)
+                plt.close(fig)
             
-            for log in recent_logs:
-                timestamp = log["timestamp"]
-                action = log["action"]
-                message = log["message"]
-                level = log.get("level", "INFO")
-                
-                # 根据级别显示不同的图标
-                if level == "ERROR":
-                    icon = "❌"
-                    color = "red"
-                elif level == "WARNING":
-                    icon = "⚠️"
-                    color = "orange"
-                else:
-                    icon = "ℹ️"
-                    color = "blue"
-                
-                st.write(f"{icon} **{timestamp}** - {action}: {message}")
+            # 显示直方图
+            st.write("**质量分数分布:**")
+            df = st.session_state.workflow_results.to_pandas()
+            scores = df["text_quality_score"]
+            
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.hist(scores, bins=20, alpha=0.7, color='#2196F3')
+            ax.axvline(0.5, color='red', linestyle='--', label='阈值')
+            ax.set_xlabel('质量分数')
+            ax.set_ylabel('频数')
+            ax.set_title('质量分数分布直方图')
+            ax.legend()
+            
+            st.pyplot(fig)
+            plt.close(fig)
     
-    def _add_log(self, action, message, level="INFO"):
-        """添加处理日志"""
+    def _display_text_length_chart(self, results: Dict[str, Any]):
+        """显示文本长度图表"""
+        with st.expander("文本长度分析", expanded=True):
+            # 创建两列布局
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # 显示统计信息
+                st.write("**统计信息:**")
+                stats_df = pd.DataFrame({
+                    "指标": ["平均长度", "中位数", "标准差", "最小值", "最大值"],
+                    "值": [
+                        f"{results['mean']:.2f}",
+                        f"{results['median']:.2f}",
+                        f"{results['std']:.2f}",
+                        results['min'],
+                        results['max']
+                    ]
+                })
+                st.dataframe(stats_df, use_container_width=True)
+            
+            with col2:
+                # 显示箱线图
+                df = st.session_state.workflow_results.to_pandas()
+                lengths = df["text_length"]
+                
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.boxplot(lengths)
+                ax.set_ylabel('文本长度')
+                ax.set_title('文本长度分布箱线图')
+                
+                st.pyplot(fig)
+                plt.close(fig)
+            
+            # 显示直方图
+            st.write("**文本长度分布:**")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.hist(lengths, bins=30, alpha=0.7, color='#9C27B0')
+            ax.set_xlabel('文本长度')
+            ax.set_ylabel('频数')
+            ax.set_title('文本长度分布直方图')
+            
+            st.pyplot(fig)
+            plt.close(fig)
+    
+    def _add_log(self, action: str, message: str, level: str = "INFO"):
+        """添加日志"""
         log_entry = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "action": action,
             "message": message,
             "level": level
         }
-        st.session_state.processing_logs.append(log_entry)
         
-        # 限制日志数量
-        if len(st.session_state.processing_logs) > 100:
-            st.session_state.processing_logs = st.session_state.processing_logs[-100:]
+        st.session_state.processing_logs.append(log_entry)
+    
+    def _get_download_link(self, df: daft.DataFrame, filename: str, text: str):
+        """获取下载链接"""
+        # 转换为pandas DataFrame
+        pd_df = df.to_pandas()
+        
+        # 创建CSV
+        csv = pd_df.to_csv(index=False)
+        b64 = base64.b64encode(csv.encode()).decode()
+        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}">{text}</a>'
+        return href

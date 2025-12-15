@@ -2,7 +2,7 @@
 CSV文件写入算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class CSVWriter(Operator):
     """CSV文件写入算子"""

@@ -3,7 +3,7 @@ Parquet文件读取算子
 """
 
 import daft
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class ParquetReader(Operator):
     """Parquet文件读取算子"""

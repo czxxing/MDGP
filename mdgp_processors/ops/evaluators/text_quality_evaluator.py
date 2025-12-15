@@ -2,7 +2,7 @@
 文本质量评估算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class TextQualityEvaluator(Operator):
     """文本质量评估算子"""

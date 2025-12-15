@@ -2,7 +2,7 @@
 质量分数过滤算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class QualityScoreFilter(Operator):
     """质量分数过滤算子"""

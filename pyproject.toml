@@ -41,7 +41,6 @@ dependencies = [
     "streamlit-tags==1.2.8",
     "streamlit-aggrid==1.2.0.post1",
     "seaborn==0.13.2",
-    "nemo-curator==1.0.0",
     "langdetect==1.0.9",
     "fasttext==0.9.3",
     "sentencepiece==0.2.1",

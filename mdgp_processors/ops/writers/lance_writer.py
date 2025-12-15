@@ -2,7 +2,7 @@
 Lance格式写入算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class LanceWriter(Operator):
     """Lance格式写入算子"""

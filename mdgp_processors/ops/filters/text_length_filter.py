@@ -2,7 +2,7 @@
 文本长度过滤算子
 """
 
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class TextLengthFilter(Operator):
     """文本长度过滤算子"""

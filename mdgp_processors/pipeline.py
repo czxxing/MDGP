@@ -3,19 +3,8 @@
 """
 
 import daft
-from typing import List, TypeVar, Generic
-
-T = TypeVar('T')
-
-class Operator(Generic[T]):
-    """算子基类，定义统一接口"""
-    
-    def __init__(self):
-        self.name = self.__class__.__name__
-    
-    def process(self, dataframe: daft.DataFrame) -> daft.DataFrame:
-        """处理数据框的方法，子类必须实现"""
-        raise NotImplementedError("子类必须实现process方法")
+from typing import List
+from mdgp_processors.ops.base_operator import Operator
 
 class DataPipeline:
     """数据处理管道，用于连接多个算子"""

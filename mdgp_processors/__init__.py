@@ -4,7 +4,7 @@ MDGP Processors 包
 
 # 从ops模块导入所有算子
 from .ops import *
-from .pipeline import Operator, DataPipeline
+from .pipeline import DataPipeline
 from .models import ModelOperator, ModelInterface, ModelFactory, model_factory, LocalModel, HuggingFaceModel, OpenAIModel
 from .analysis import DataAnalyzer, DataVisualizer, EvaluationAnalyzer
 

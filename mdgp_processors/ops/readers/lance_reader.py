@@ -3,7 +3,7 @@ Lance格式读取算子
 """
 
 import daft
-from ..pipeline import Operator
+from ..base_operator import Operator
 
 class LanceReader(Operator):
     """Lance格式读取算子"""
