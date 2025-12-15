@@ -1,5 +1,5 @@
 """
-数据读取算子模块
+读取算子模块
 """
 
 from .csv_reader import CSVReader
@@ -15,5 +15,5 @@ __all__ = [
     "ParquetReader",
     "ImageReader",
     "AudioReader",
-    "LanceReader",
+    "LanceReader"
 ]

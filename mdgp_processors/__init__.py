@@ -1,34 +1,11 @@
 """
-MDGP Processors - 基于Daft的多模态数据处理包
+MDGP Processors 包
 """
 
-from .pipeline import DataPipeline
-from .readers import *
-from .filters import *
-from .evaluators import *
-from .dedupers import *
-from .writers import *
+# 从ops模块导入所有算子
+from .ops import *
+from .pipeline import Operator, DataPipeline
+from .models import ModelOperator, ModelInterface, ModelFactory, model_factory, LocalModel, HuggingFaceModel, OpenAIModel
 
-__version__ = "0.1.0"
-__all__ = [
-    "DataPipeline",
-    # Readers
-    "CSVReader",
-    "JSONReader",
-    "ParquetReader",
-    "ImageReader",
-    "AudioReader",
-    "LanceReader",
-    # Filters
-    "TextLengthFilter",
-    "ImageResolutionFilter",
-    "AudioDurationFilter",
-    "QualityScoreFilter",
-    # Evaluators
-    "TextQualityEvaluator",
-    # Dedupers
-    "TextDeduper",
-    # Writers
-    "CSVWriter",
-    "LanceWriter",
-]
+# 导出算子和管道
+__all__ = ops.__all__ + ["Operator", "DataPipeline", "ModelOperator", "ModelInterface", "ModelFactory", "model_factory", "LocalModel", "HuggingFaceModel", "OpenAIModel"]
