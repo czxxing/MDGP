@@ -33,6 +33,9 @@ class ImageResolutionFilter(Operator):
         Returns:
             过滤后的数据框
         """
+        # 首先过滤掉文本列为空的数据
+        dataframe = dataframe.filter(dataframe[self.text_column].is_not_null())
+        
         # 应用宽度过滤条件
         if self.min_width > 0:
             dataframe = dataframe.filter(dataframe["width"] >= self.min_width)

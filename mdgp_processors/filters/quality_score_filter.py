@@ -29,4 +29,5 @@ class QualityScoreFilter(Operator):
         Returns:
             过滤后的数据框
         """
+
         return dataframe.filter(dataframe[self.score_column] >= self.min_score)
