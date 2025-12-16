@@ -1,18 +1,19 @@
 """
 文本质量评估算子
 """
+import daft
 
 from ..base_operator import Operator
 
 class TextQualityEvaluator(Operator):
     """文本质量评估算子"""
     
-    def __init__(self, text_column: str = "text", score_column: str = "text_quality_score"):
+    def __init__(self, text_column: str = "text", score_column: str = "eval_text_quality"):
         """初始化文本质量评估器
         
         Args:
             text_column: 文本列名
-            score_column: 质量分数输出列名
+            score_column: 质量分数输出列名，默认以"eval_"开头以兼容DataAnalyzer和EvaluationAnalyzer
         """
         super().__init__()
         self.text_column = text_column
@@ -45,8 +46,8 @@ class TextQualityEvaluator(Operator):
             
             return length_score + punctuation_score + word_score
         
-        # 应用评估函数
+
         return dataframe.with_column(
             self.score_column,
-            dataframe[self.text_column].apply(evaluate_quality)
+            dataframe[self.text_column].apply(evaluate_quality,return_dtype=daft.DataType.int64())
         )

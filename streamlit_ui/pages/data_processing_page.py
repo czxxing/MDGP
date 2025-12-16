@@ -343,11 +343,90 @@ class DataProcessingPage:
                 with col2:
                     st.metric("列数", len(result_df.columns))
                 
-                # 显示结果数据
-                st.subheader("📄 结果数据")
-                st.dataframe(result_df, use_container_width=True)
+                # 创建结果查看和分析的tab页
+                result_tab, analysis_tab = st.tabs(["📄 结果数据", "📊 数据分析"])  
                 
-
+                with result_tab:
+                    # 显示结果数据
+                    st.dataframe(result_df, use_container_width=True)
+                
+                with analysis_tab:
+                    # 导入分析模块
+                    from mdgp_processors import (
+                        DataAnalyzer,
+                        DataVisualizer,
+                        EvaluationAnalyzer,
+                    )
+                    from mdgp_processors.ops.readers import CSVReader
+                    
+                    st.subheader("🔍 数据质量分析")
+                    
+                    # 数据质量分析
+                    # 由于DataAnalyzer需要Daft DataFrame，我们需要将pandas DataFrame转换回Daft DataFrame
+                    if isinstance(st.session_state.workflow_results, daft.DataFrame):
+                        # 使用原始的Daft DataFrame
+                        data_analyzer = DataAnalyzer(st.session_state.workflow_results)
+                    else:
+                        # 转换为Daft DataFrame
+                        data_analyzer = DataAnalyzer(daft.from_pandas(result_df))
+                    
+                    # 分析所有列
+                    all_columns_analysis = data_analyzer.analyze_all_columns()
+                    
+                    # 将分析结果转换为DataFrame进行显示
+                    analysis_df = pd.DataFrame.from_dict(all_columns_analysis, orient='index')
+                    st.markdown("### 数据质量报告")
+                    st.dataframe(analysis_df, use_container_width=True)
+                    
+                    # 显示详细的分布分析
+                    st.subheader("📈 详细分布分析")
+                    
+                    # 选择列进行详细分析
+                    columns = list(all_columns_analysis.keys())
+                    selected_column = st.selectbox("选择要分析的列", columns)
+                    
+                    if selected_column:
+                        # 获取选中列的分析结果
+                        column_analysis = data_analyzer.analyze_column_distribution(selected_column)
+                        
+                        # 将结果转换为更易读的格式
+                        column_analysis_df = pd.DataFrame.from_dict(column_analysis, orient='index', columns=['值'])
+                        st.markdown(f"### {selected_column} 列分析")
+                        st.dataframe(column_analysis_df, use_container_width=True)
+                        
+                    # 评估分析
+                    st.subheader("📋 评估分析")
+                    
+                    if isinstance(st.session_state.workflow_results, daft.DataFrame):
+                        # 使用原始的Daft DataFrame
+                        evaluation_analyzer = EvaluationAnalyzer(st.session_state.workflow_results)
+                    else:
+                        # 转换为Daft DataFrame
+                        evaluation_analyzer = EvaluationAnalyzer(daft.from_pandas(result_df))
+                    
+                    # 计算所有评估列的通过率
+                    try:
+                        pass_rates = evaluation_analyzer.calculate_all_pass_rates()
+                        
+                        if pass_rates:
+                            pass_rates_df = pd.DataFrame.from_dict(pass_rates, orient='index')
+                            st.markdown("### 评估结果通过率")
+                            st.dataframe(pass_rates_df, use_container_width=True)
+                        else:
+                            st.info("未找到评估列 (默认前缀: 'eval_')")
+                    except ValueError as e:
+                        st.info(str(e))
+                        
+                    # 如果结果包含质量评分列，进行额外分析
+                    if 'eval_text_quality' in result_df.columns:
+                        st.markdown("### 文本质量评分分布")
+                        # 使用DataVisualizer可视化文本质量评分分布
+                        visualizer = DataVisualizer(result_df)
+                        try:
+                            fig = visualizer.plot_histogram('eval_text_quality', bins=10)
+                            st.pyplot(fig)
+                        except Exception as e:
+                            st.warning(f"无法生成可视化图: {str(e)}")
             
             # 显示执行日志
             if st.session_state.processing_logs:
@@ -664,7 +743,7 @@ class DataProcessingPage:
         elif operator_class == TextQualityEvaluator:
             params = {
                 "text_column": "text",
-                "score_column": "text_quality_score"
+                "score_column": "eval_text_quality"
             }
         elif operator_class == CSVReader:
             params = {
@@ -678,13 +757,13 @@ class DataProcessingPage:
             }
         elif operator_class == QualityScoreFilter:
             params = {
-                "score_column": "text_quality_score",
+                "score_column": "eval_text_quality",
                 "threshold": 0.5
             }
         elif operator_class == TextDeduper:
             params = {
                 "text_column": "text",
-                "threshold": 0.9
+                "keep": "first"
             }
         elif operator_class == LanceReader:
             params = {
@@ -814,7 +893,7 @@ class DataProcessingPage:
         
         elif operator_class == TextDeduper or (operator and isinstance(operator, TextDeduper)):
             params["text_column"] = st.text_input("文本列名", value=params["text_column"])
-            params["threshold"] = st.slider("相似度阈值", min_value=0.0, max_value=1.0, value=params["threshold"])
+            params["keep"] = st.selectbox("保留策略", options=["first", "last", False], index=0 if params["keep"] == "first" else 1 if params["keep"] == "last" else 2)
         
         # 添加配置完成按钮
         col1, col2 = st.columns([2, 1])
