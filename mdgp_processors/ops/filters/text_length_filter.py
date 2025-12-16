@@ -1,6 +1,7 @@
 """
 文本长度过滤算子
 """
+import daft
 
 from ..base_operator import Operator
 
@@ -30,7 +31,7 @@ class TextLengthFilter(Operator):
             过滤后的数据框
         """
         # 计算文本长度
-        dataframe = dataframe.with_column("text_length", dataframe[self.text_column].str.len())
+        dataframe = dataframe.with_column("text_length", daft.functions.length(dataframe[self.text_column]))
         
         # 应用过滤条件
         if self.min_length > 0:
@@ -40,6 +41,6 @@ class TextLengthFilter(Operator):
             dataframe = dataframe.filter(dataframe["text_length"] <= self.max_length)
         
         # 删除临时列
-        dataframe = dataframe.drop("text_length")
+        dataframe = dataframe.exclude("text_length")
         
         return dataframe

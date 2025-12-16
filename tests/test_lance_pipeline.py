@@ -3,10 +3,10 @@
 """
 
 from mdgp_processors import DataPipeline
-from mdgp_processors.readers import LanceReader
-from mdgp_processors.filters import TextLengthFilter
-from mdgp_processors.dedupers import TextDeduper
-from mdgp_processors.writers import LanceWriter
+from mdgp_processors import LanceReader
+from mdgp_processors import TextLengthFilter
+from mdgp_processors import TextDeduper
+from mdgp_processors import LanceWriter
 
 def test_lance_pipeline():
     """测试Lance格式的数据处理管道"""
@@ -16,9 +16,9 @@ def test_lance_pipeline():
     pipeline = DataPipeline()
     
     # 构建处理流程
-    pipeline.add_operator(LanceReader("db/multimodal_data.lance"))  # 读取Lance格式数据
-    pipeline.add_operator(TextLengthFilter(min_length=10))  # 过滤短文本
-    pipeline.add_operator(TextDeduper(text_column="text"))  # 文本去重
+    pipeline.set_input(LanceReader("../db/multimodal_data.lance").process())  # 读取Lance格式数据
+    pipeline.add_operator(TextLengthFilter(text_column="path",min_length=10))  # 过滤短文本
+    pipeline.add_operator(TextDeduper(text_column="path"))  # 文本去重
     pipeline.add_operator(LanceWriter("output/processed_data.lance"))  # 写入Lance格式
     
     print(f"管道构建完成: {pipeline}")

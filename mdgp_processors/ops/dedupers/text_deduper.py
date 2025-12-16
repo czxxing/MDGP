@@ -27,4 +27,4 @@ class TextDeduper(Operator):
         Returns:
             去重后的数据框
         """
-        return dataframe.drop_duplicates(subset=[self.text_column], keep=self.keep)
+        return dataframe.drop_duplicates(self.text_column)
