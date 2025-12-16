@@ -1,5 +1,10 @@
 """
-数据处理页面模块 - 实现算子拖拉拽和数据处理工作流构建
+数据处理页面模块 - 根据test_lance_pipeline.py重新设计
+支持：
+1. 首先设置输入算子
+2. 展示数据样例和schema
+3. 进行后续算子设置
+4. 点击执行后展示最终数据
 """
 import streamlit as st
 import pandas as pd
@@ -13,18 +18,17 @@ import uuid
 import base64
 from io import BytesIO
 from datetime import datetime
+import daft
 
 # 导入mdgp_processors
 from mdgp_processors import Operator, DataPipeline
 from mdgp_processors.ops import (
     # Readers
-    CSVReader, LanceReader, JSONReader, ParquetReader,
-    ImageReader, AudioReader,
+    CSVReader, LanceReader, JSONReader, ParquetReader, ImageReader, AudioReader,
     # Writers
     CSVWriter, LanceWriter,
     # Filters
-    TextLengthFilter, ImageResolutionFilter, AudioDurationFilter,
-    QualityScoreFilter,
+    TextLengthFilter, ImageResolutionFilter, AudioDurationFilter, QualityScoreFilter,
     # Dedupers
     TextDeduper,
     # Evaluators
@@ -36,27 +40,29 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 class DataProcessingPage:
-    """数据处理页面类 - 实现算子拖拉拽和工作流构建"""
+    """数据处理页面类 - 根据test_lance_pipeline.py重新设计"""
     
     def __init__(self, lance_manager):
         self.lance_manager = lance_manager
         self.logger = self._setup_logging()
         
-        # 初始化会话状态
-        if 'current_dataframe' not in st.session_state:
-            st.session_state.current_dataframe = None
-        if 'workflow_operators' not in st.session_state:
-            st.session_state.workflow_operators = []
-        if 'workflow_connections' not in st.session_state:
-            st.session_state.workflow_connections = []
+        # 初始化会话状态 - 清晰的步骤引导
+        if 'input_operator' not in st.session_state:
+            st.session_state.input_operator = None  # 输入算子
+        if 'input_operator_configured' not in st.session_state:
+            st.session_state.input_operator_configured = False  # 输入算子是否已配置
+        if 'data_sample' not in st.session_state:
+            st.session_state.data_sample = None  # 数据样例
+        if 'data_schema' not in st.session_state:
+            st.session_state.data_schema = None  # 数据schema
+        if 'processing_operators' not in st.session_state:
+            st.session_state.processing_operators = []  # 处理算子列表
         if 'workflow_results' not in st.session_state:
-            st.session_state.workflow_results = None
+            st.session_state.workflow_results = None  # 工作流结果
         if 'processing_logs' not in st.session_state:
-            st.session_state.processing_logs = []
+            st.session_state.processing_logs = []  # 处理日志
         if 'analysis_results' not in st.session_state:
-            st.session_state.analysis_results = {}
-        if 'dragged_operator' not in st.session_state:
-            st.session_state.dragged_operator = None
+            st.session_state.analysis_results = {}  # 分析结果
     
     def _setup_logging(self):
         """设置日志记录"""
@@ -80,90 +86,280 @@ class DataProcessingPage:
         return "使用mdgp_processors构建数据处理工作流"
     
     def display(self):
-        """显示数据处理内容"""
-        st.header("📊 数据处理工作流构建")
+        """显示数据处理内容 - 按照步骤引导用户"""
+        st.header("📊 数据处理工作流")
         
-        # 创建页面布局
-        self._setup_page_layout()
+        # 步骤1: 设置输入算子
+        self._step1_input_operator()
+        
+        # 步骤2: 查看数据样例和Schema
+        if st.session_state.input_operator_configured:
+            self._step2_data_preview()
+        
+        # 步骤3: 添加处理算子
+        if st.session_state.input_operator_configured:
+            self._step3_processing_operators()
+        
+        # 步骤4: 执行工作流并查看结果
+        if st.session_state.input_operator_configured and st.session_state.processing_operators:
+            self._step4_execute_and_results()
     
-    def _setup_page_layout(self):
-        """设置页面布局"""
-        # 使用标签页组织内容
-        tab1, tab2, tab3 = st.tabs(["🔧 工作流构建", "📥 数据加载", "📊 结果展示"])
-        
-        with tab1:
-            self._display_workflow_builder()
-        
-        with tab2:
-            self._display_data_loading_section()
-        
-        with tab3:
-            self._display_results_section()
-    
-    def _display_data_loading_section(self):
-        """显示数据加载区域"""
-        st.subheader("📥 数据加载")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🔄 从数据库加载数据", use_container_width=True):
-                with st.spinner("正在从数据库加载数据..."):
-                    df = self.lance_manager.load_from_lance()
-                    if df is not None and not df.empty:
-                        st.session_state.current_dataframe = df
-                        st.success(f"✅ 成功加载 {len(df)} 条记录")
-                        self._add_log("数据加载", f"成功加载 {len(df)} 条记录")
-                    else:
-                        st.error("❌ 数据库中没有数据，请先在数据目录页面导入数据")
-        
-        with col2:
-            if st.session_state.current_dataframe is not None:
-                st.metric("当前数据量", len(st.session_state.current_dataframe))
-            else:
-                st.info("📊 等待数据加载")
-        
-        with col3:
-            if st.session_state.current_dataframe is not None:
-                if st.button("🗑️ 清除数据", use_container_width=True):
-                    st.session_state.current_dataframe = None
-                    st.session_state.workflow_results = None
-                    st.session_state.processing_logs = []
-                    st.session_state.analysis_results = {}
-                    st.rerun()
-        
-        # 数据预览
-        if st.session_state.current_dataframe is not None:
-            self._display_data_preview()
-    
-    def _display_data_preview(self):
-        """显示数据预览"""
-        st.subheader("👀 数据预览")
-        
-        df = st.session_state.current_dataframe
-        
-        # 显示基本信息
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("记录数", len(df))
-        with col2:
-            st.metric("列数", len(df.columns))
-        with col3:
-            st.metric("数据类型", f"{len(df.select_dtypes(include=['object']).columns)}文本列")
-        
-        # 显示前几行数据
-        with st.expander("查看数据详情"):
-            st.dataframe(df.head(10), use_container_width=True)
+    def _step1_input_operator(self):
+        """步骤1: 设置输入算子"""
+        with st.expander("🔧 步骤1: 设置输入算子", expanded=True):
+            st.subheader("📥 输入数据源配置")
             
-            # 显示列信息
-            st.write("**列信息:**")
-            col_info = pd.DataFrame({
-                '列名': df.columns,
-                '数据类型': [str(dtype) for dtype in df.dtypes.values],
-                '非空值数': df.count().values,
-                '缺失值数': df.isnull().sum().values
-            })
-            st.dataframe(col_info, use_container_width=True)
+            # 选择输入算子类型
+            input_types = {
+                "CSVReader": CSVReader,
+                "LanceReader": LanceReader,
+                "JSONReader": JSONReader,
+                "ParquetReader": ParquetReader,
+                "ImageReader": ImageReader,
+                "AudioReader": AudioReader
+            }
+            
+            # 选择算子类型
+            selected_type = st.selectbox(
+                "选择输入数据源类型",
+                options=list(input_types.keys()),
+                index=1 if "LanceReader" in input_types else 0
+            )
+            
+            # 获取选中的算子类
+            operator_class = input_types[selected_type]
+            
+            # 配置算子参数
+            st.subheader("⚙️ 输入算子参数配置")
+            params = self._get_operator_params(operator_class)
+            
+            # 根据算子类型显示参数配置
+            if operator_class == LanceReader:
+                params["file_path"] = st.text_input(
+                    "文件路径",
+                    value=params["file_path"] or "db/multimodal_data.lance"
+                )
+            elif operator_class == CSVReader:
+                params["file_path"] = st.text_input("文件路径", value=params["file_path"])
+                params["delimiter"] = st.text_input("分隔符", value=params["delimiter"])
+            elif operator_class == JSONReader or operator_class == ParquetReader:
+                params["file_path"] = st.text_input("文件路径", value=params["file_path"])
+            else:  # ImageReader, AudioReader
+                params["file_path"] = st.text_input("文件路径或目录", value=params["file_path"])
+            
+            # 配置按钮
+            if st.button("✅ 配置输入算子", use_container_width=True, type="primary"):
+                try:
+                    with st.spinner("正在配置输入算子..."):
+                        # 实例化输入算子
+                        operator = operator_class(**params)
+                        
+                        # 测试读取数据
+                        if hasattr(operator, "process"):
+                            # 对于Reader类，process方法不需要输入dataframe
+                            df = operator.process()
+                            
+                            # 保存数据样例和schema
+                            if isinstance(df, daft.DataFrame):
+                                # 转换为pandas用于预览
+                                st.session_state.data_sample = df.limit(10).to_pandas()
+                                # 获取schema
+                                st.session_state.data_schema = df.schema()
+                            elif isinstance(df, pd.DataFrame):
+                                st.session_state.data_sample = df.head(10)
+                                st.session_state.data_schema = df.dtypes
+                            
+                            # 保存输入算子
+                            st.session_state.input_operator = operator
+                            st.session_state.input_operator_configured = True
+
+                            st.session_state.df = df
+                            
+                            st.success("✅ 输入算子配置成功！")
+                            self._add_log("输入算子配置", f"成功配置 {selected_type} 算子")
+                except Exception as e:
+                    st.error(f"❌ 输入算子配置失败: {str(e)}")
+                    self._add_log("输入算子配置", f"配置 {selected_type} 算子失败: {str(e)}", "ERROR")
+    
+    def _step2_data_preview(self):
+        """步骤2: 查看数据样例和Schema"""
+        with st.expander("👀 步骤2: 查看数据样例和Schema", expanded=True):
+            st.subheader("📋 数据基本信息")
+            
+            # 显示数据样例
+            st.subheader("📄 数据样例")
+            if st.session_state.data_sample is not None:
+                st.dataframe(st.session_state.data_sample, use_container_width=True)
+            else:
+                st.info("🔄 正在加载数据样例...")
+            
+            # 显示数据Schema
+            st.subheader("📊 数据Schema")
+            if st.session_state.data_schema is not None:
+                if isinstance(st.session_state.df,daft.DataFrame):
+                    # Daft DataFrame Schema
+                    schema_data = []
+
+                    st.dataframe(st.session_state.data_schema, use_container_width=True)
+                else:
+                    # Pandas DataFrame dtypes
+                    schema_df = pd.DataFrame({
+                        "列名": st.session_state.data_schema.index,
+                        "数据类型": st.session_state.data_schema.values.astype(str)
+                    })
+                    st.dataframe(schema_df, use_container_width=True)
+            else:
+                st.info("🔄 正在加载数据Schema...")
+    
+    def _step3_processing_operators(self):
+        """步骤3: 添加处理算子"""
+        with st.expander("⚙️ 步骤3: 添加处理算子", expanded=True):
+            st.subheader("🧩 处理算子库")
+            
+            # 算子分类
+            operator_categories = {
+                "过滤器": [TextLengthFilter, ImageResolutionFilter, AudioDurationFilter, QualityScoreFilter],
+                "去重器": [TextDeduper],
+                "评估器": [TextQualityEvaluator],
+                "写入器": [CSVWriter, LanceWriter]
+            }
+            
+            # 选择算子类型
+            category = st.selectbox(
+                "选择算子类型",
+                options=list(operator_categories.keys())
+            )
+            
+            # 选择具体算子
+            operators = operator_categories[category]
+            operator_names = [op.__name__ for op in operators]
+            selected_operator_name = st.selectbox(
+                "选择算子",
+                options=operator_names
+            )
+            
+            # 获取选中的算子类
+            selected_operator = next(op for op in operators if op.__name__ == selected_operator_name)
+            
+            # 配置算子参数
+            st.subheader("🔧 算子参数配置")
+            params = self._get_operator_params(selected_operator)
+            
+            # 根据算子类型显示参数配置
+            if selected_operator == TextLengthFilter:
+                params["text_column"] = st.selectbox(
+                    "选择文本列",
+                    options=st.session_state.data_sample.columns if st.session_state.data_sample is not None else ["text"],
+                    index=0 if "text" in st.session_state.data_sample.columns else 0
+                )
+                params["min_length"] = st.number_input("最小长度", min_value=0, value=params["min_length"])
+                params["max_length"] = st.number_input("最大长度", min_value=0, value=params["max_length"] or 1000, step=1)
+            elif selected_operator == TextDeduper:
+                params["text_column"] = st.selectbox(
+                    "选择文本列",
+                    options=st.session_state.data_sample.columns if st.session_state.data_sample is not None else ["text"],
+                    index=0 if "text" in st.session_state.data_sample.columns else 0
+                )
+            elif selected_operator == TextQualityEvaluator:
+                params["text_column"] = st.selectbox(
+                    "选择文本列",
+                    options=st.session_state.data_sample.columns if st.session_state.data_sample is not None else ["text"],
+                    index=0 if "text" in st.session_state.data_sample.columns else 0
+                )
+                params["score_column"] = st.text_input("质量分数列名", value=params["score_column"])
+            elif selected_operator == QualityScoreFilter:
+                params["score_column"] = st.selectbox(
+                    "选择分数列",
+                    options=st.session_state.data_sample.columns if st.session_state.data_sample is not None else ["score"],
+                    index=0 if "score" in st.session_state.data_sample.columns else 0
+                )
+                params["threshold"] = st.slider("质量阈值", min_value=0.0, max_value=1.0, value=params["threshold"])
+            elif selected_operator == CSVWriter:
+                params["file_path"] = st.text_input("输出文件路径", value=params["file_path"] or "output/results.csv")
+                params["delimiter"] = st.text_input("分隔符", value=params["delimiter"])
+            elif selected_operator == LanceWriter:
+                params["file_path"] = st.text_input("输出文件路径", value=params["file_path"] or "output/results.lance")
+            
+            # 添加算子按钮
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(f"➕ 添加 {selected_operator_name}", use_container_width=True, type="primary"):
+                    # 实例化算子
+                    operator = selected_operator(**params)
+                    
+                    # 添加到处理算子列表
+                    st.session_state.processing_operators.append({
+                        "name": selected_operator_name,
+                        "instance": operator,
+                        "params": params
+                    })
+                    
+                    st.success(f"✅ 已添加 {selected_operator_name} 算子")
+            
+            with col2:
+                if st.session_state.processing_operators and st.button("🗑️ 清除所有算子", use_container_width=True, type="secondary"):
+                    st.session_state.processing_operators = []
+                    st.rerun()
+            
+            # 显示已添加的算子
+            if st.session_state.processing_operators:
+                st.subheader("📋 已添加的算子")
+                for i, op in enumerate(st.session_state.processing_operators):
+                    with st.container():
+                        col1, col2, col3 = st.columns([2, 3, 1])
+                        with col1:
+                            st.text(f"{i+1}. {op['name']}")
+                        with col2:
+                            st.text(f"参数: {', '.join([f'{k}={v}' for k, v in op['params'].items()])}")
+                        with col3:
+                            if st.button(f"❌", key=f"remove_{i}"):
+                                st.session_state.processing_operators.pop(i)
+                                st.rerun()
+    
+    def _step4_execute_and_results(self):
+        """步骤4: 执行工作流并查看结果"""
+        with st.expander("🚀 步骤4: 执行工作流并查看结果", expanded=True):
+            st.subheader("📊 执行工作流")
+            
+            # 执行按钮
+            if st.button("▶️ 执行工作流", use_container_width=True, type="primary"):
+                self._run_workflow()
+            
+            # 显示结果
+            if st.session_state.workflow_results is not None:
+                st.subheader("📈 工作流执行结果")
+                
+                # 显示结果数据
+                if isinstance(st.session_state.workflow_results, daft.DataFrame):
+                    # 转换为pandas用于显示
+                    result_df = st.session_state.workflow_results.to_pandas()
+                else:
+                    result_df = st.session_state.workflow_results
+                
+                # 显示基本信息
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("处理后记录数", len(result_df))
+                with col2:
+                    st.metric("列数", len(result_df.columns))
+                
+                # 显示结果数据
+                st.subheader("📄 结果数据")
+                st.dataframe(result_df, use_container_width=True)
+                
+
+            
+            # 显示执行日志
+            if st.session_state.processing_logs:
+                st.subheader("📝 执行日志")
+                with st.expander("查看详细日志"):
+                    for log in st.session_state.processing_logs:
+                        if log["level"] == "ERROR":
+                            st.markdown(f"📅 {log['timestamp']} - ❌ {log['action']}: {log['message']}")
+                        elif log["level"] == "WARNING":
+                            st.markdown(f"📅 {log['timestamp']} - ⚠️ {log['action']}: {log['message']}")
+                        else:
+                            st.markdown(f"📅 {log['timestamp']} - ✅ {log['action']}: {log['message']}")
     
     def _display_workflow_builder(self):
         """显示工作流构建区域 - 实现算子拖拉拽"""
@@ -492,8 +688,8 @@ class DataProcessingPage:
             }
         elif operator_class == LanceReader:
             params = {
-                "file_path": "",
-                "columns": None
+                "file_path": ""
+
             }
         elif operator_class == JSONReader:
             params = {
@@ -593,8 +789,16 @@ class DataProcessingPage:
             params["max_length"] = st.number_input("最大长度", min_value=0, value=params["max_length"] or 1000, step=1)
         
         elif operator_class == TextQualityEvaluator or (operator and isinstance(operator, TextQualityEvaluator)):
-            params["text_column"] = st.text_input("文本列名", value=params["text_column"])
-            params["score_column"] = st.text_input("分数列名", value=params["score_column"])
+            # 如果有数据样本，提供列选择器
+            if st.session_state.data_sample is not None:
+                params["text_column"] = st.selectbox(
+                    "选择文本列",
+                    options=st.session_state.data_sample.columns,
+                    index=0 if params["text_column"] in st.session_state.data_sample.columns else 0
+                )
+            else:
+                params["text_column"] = st.text_input("文本列名", value=params["text_column"])
+            params["score_column"] = st.text_input("质量分数列名", value=params["score_column"])
         
         elif operator_class == QualityScoreFilter or (operator and isinstance(operator, QualityScoreFilter)):
             params["score_column"] = st.text_input("分数列名", value=params["score_column"])
@@ -645,44 +849,40 @@ class DataProcessingPage:
     
     def _run_workflow(self):
         """运行工作流"""
-        if not st.session_state.workflow_operators:
-            st.error("❌ 工作流为空，请添加算子")
-            return
-        
-        if st.session_state.current_dataframe is None:
-            st.error("❌ 没有加载数据，请先加载数据")
-            return
-        
-        # 检查所有算子是否已配置
-        for i, operator_info in enumerate(st.session_state.workflow_operators):
-            if not operator_info.get("configured", False):
-                st.error(f"❌ 算子 {i+1} 未配置完成，请检查参数设置")
-                return
-        
-        with st.spinner("正在运行工作流..."):
+        with st.spinner("正在执行工作流..."):
             try:
-                # 转换数据格式
-                df = st.session_state.current_dataframe
+                # 检查输入算子是否已配置
+                if not st.session_state.input_operator_configured:
+                    st.error("请先配置输入算子")
+                    return
                 
-                # 初始化管道
+                # 创建DataPipeline实例
+                from mdgp_processors.pipeline import DataPipeline
                 pipeline = DataPipeline()
-                pipeline.set_input(df)
                 
                 # 创建日志区域
                 log_container = st.empty()
                 logs = []
                 
-                # 添加算子到管道
-                for i, operator_info in enumerate(st.session_state.workflow_operators):
-                    operator = operator_info["instance"]
-                    operator_class = operator_info["class"]
+                # 添加输入算子
+
+                pipeline.set_input(st.session_state.df)
+                logs.append(f"✅ 添加输入算子: {st.session_state.input_operator}")
+                log_container.text_area("运行日志", "\n".join(logs), height=100)
+                self._add_log("添加输入算子", f"成功添加输入算子: {st.session_state.input_operator}", "INFO")
+                
+                # 添加处理算子
+                for i, op in enumerate(st.session_state.processing_operators):
+                    operator_cls = self._get_operator_class_by_name(op["name"])
+                    if not operator_cls:
+                        st.error(f"找不到处理算子类: {op['name']}")
+                        return
                     
-                    # 添加到管道
+                    operator = operator_cls(**op["params"])
                     pipeline.add_operator(operator)
-                    
-                    # 更新日志
-                    logs.append(f"✅ 添加算子: {operator_class.__name__}")
+                    logs.append(f"✅ 添加处理算子: {op['name']}")
                     log_container.text_area("运行日志", "\n".join(logs), height=100)
+                    self._add_log("添加处理算子", f"成功添加处理算子: {op['name']}", "INFO")
                 
                 # 运行管道
                 logs.append("🚀 开始执行工作流...")
@@ -690,28 +890,21 @@ class DataProcessingPage:
                 
                 result_df = pipeline.run()
                 
-                # 更新日志
                 logs.append(f"✅ 工作流执行完成！")
                 log_container.text_area("运行日志", "\n".join(logs), height=100)
                 
-                # 保存结果
+                # 更新会话状态
                 st.session_state.workflow_results = result_df
-                st.success(f"✅ 工作流运行完成！结果包含 {len(result_df)} 条记录")
+                st.session_state.workflow_executed = True
                 
-                self._add_log("工作流运行", f"工作流运行完成，结果包含 {len(result_df)} 条记录")
-                
-                # 分析结果
-                logs.append("📊 开始分析结果...")
-                log_container.text_area("运行日志", "\n".join(logs), height=100)
-                
-                self._analyze_workflow_results(result_df)
-                
-                logs.append("✅ 结果分析完成！")
-                log_container.text_area("运行日志", "\n".join(logs), height=100)
+                st.success("工作流执行成功！")
+                self._add_log("执行工作流", "工作流执行成功", "INFO")
                 
             except Exception as e:
-                st.error(f"❌ 工作流运行失败: {str(e)}")
-                self._add_log("工作流运行", f"工作流运行失败: {str(e)}", "ERROR")
+                st.error(f"工作流执行失败: {str(e)}")
+                self._add_log("执行工作流", f"执行失败: {str(e)}", "ERROR")
+    
+
     
     def _analyze_workflow_results(self, result_df: pd.DataFrame):
         """分析工作流结果"""
@@ -781,8 +974,7 @@ class DataProcessingPage:
         if st.session_state.analysis_results:
             self._display_analysis_results()
         
-        # 提供结果下载
-        self._display_results_download()
+
     
     def _display_results_preview(self):
         """显示结果预览"""
@@ -806,7 +998,7 @@ class DataProcessingPage:
     def _display_analysis_results(self):
         """显示分析结果"""
         analysis = st.session_state.analysis_results
-        
+
         # 基本统计信息
         st.subheader("📋 基本统计")
         col1, col2 = st.columns(2)
@@ -814,7 +1006,7 @@ class DataProcessingPage:
             st.metric("总记录数", analysis["basic_stats"]["records_count"])
         with col2:
             st.metric("总列数", analysis["basic_stats"]["columns_count"])
-        
+
         # 文本列分析
         if "text_analysis" in analysis:
             st.subheader("📝 文本列分析")
@@ -829,7 +1021,7 @@ class DataProcessingPage:
                         st.metric("平均长度", round(stats["mean_length"], 2))
                     with col4:
                         st.metric("中位数长度", stats["median_length"])
-                    
+
                     # 绘制文本长度分布图
                     fig, ax = plt.subplots(figsize=(10, 4))
                     df = st.session_state.workflow_results
@@ -839,7 +1031,7 @@ class DataProcessingPage:
                     ax.set_xlabel("文本长度")
                     ax.set_ylabel("频率")
                     st.pyplot(fig)
-        
+
         # 数值列分析
         if "numeric_analysis" in analysis:
             st.subheader("📈 数值列分析")
@@ -856,7 +1048,7 @@ class DataProcessingPage:
                         st.metric("中位数", round(stats["median"], 2))
                     with col5:
                         st.metric("标准差", round(stats["std"], 2))
-                    
+
                     # 绘制数值分布直方图
                     fig, ax = plt.subplots(figsize=(10, 4))
                     df = st.session_state.workflow_results
@@ -865,13 +1057,13 @@ class DataProcessingPage:
                     ax.set_xlabel(col)
                     ax.set_ylabel("频率")
                     st.pyplot(fig)
-                    
+
                     # 绘制箱线图
                     fig, ax = plt.subplots(figsize=(10, 4))
                     sns.boxplot(x=df[col], ax=ax)
                     ax.set_title(f"箱线图 - {col}")
                     st.pyplot(fig)
-        
+
         # 缺失值分析
         if "missing_values" in analysis:
             st.subheader("🔍 缺失值分析")
@@ -880,9 +1072,9 @@ class DataProcessingPage:
                 "缺失值数量": list(analysis["missing_values"].values())
             })
             missing_df["缺失值比例"] = (missing_df["缺失值数量"] / len(st.session_state.workflow_results) * 100).round(2)
-            
+
             st.dataframe(missing_df, use_container_width=True)
-            
+
             # 绘制缺失值柱状图
             fig, ax = plt.subplots(figsize=(12, 6))
             missing_df.plot(kind="bar", x="列名", y="缺失值数量", ax=ax)
@@ -891,33 +1083,8 @@ class DataProcessingPage:
             ax.set_ylabel("缺失值数量")
             plt.xticks(rotation=45)
             st.pyplot(fig)
-    
-    def _display_results_download(self):
-        """显示结果下载选项"""
-        st.subheader("💾 结果下载")
-        
-        df = st.session_state.workflow_results
-        
-        # 生成下载链接
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 下载为CSV",
-            data=csv,
-            file_name="workflow_results.csv",
-            mime="text/csv"
-        )
-        
-        # 生成Excel下载链接
-        excel_buffer = BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-            df.to_excel(writer, sheet_name="Results", index=False)
-        excel_buffer.seek(0)
-        st.download_button(
-            label="📥 下载为Excel",
-            data=excel_buffer,
-            file_name="workflow_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+
+
     
     def _add_log(self, action: str, message: str, level: str = "INFO"):
         """添加日志记录"""
